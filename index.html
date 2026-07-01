@@ -68,7 +68,15 @@
   .gdrop p{margin:0 0 14px;font-size:13px}
 
   .page{background:var(--paper);box-shadow:0 6px 30px rgba(0,0,0,.22);position:relative;overflow:hidden;display:flex;flex-direction:column;justify-content:center;align-items:center}
-  .page-tag{position:absolute;top:-23px;left:2px;font-size:12px;color:#8a8172;letter-spacing:.04em}
+  .page-wrap{display:flex;flex-direction:column;align-items:center;gap:8px}
+  .page-tag{font-size:12px;color:#8a8172;letter-spacing:.04em;align-self:flex-start;padding-left:2px}
+  .page-settings{display:flex;align-items:flex-end;gap:14px;flex-wrap:wrap;background:#f3efe8;border:1px solid #d8d1c4;border-radius:10px;padding:8px 12px;width:min(94vw,820px)}
+  .page-settings .ctrl label{font-size:9px;color:#8a8172}
+  .page-settings .ctrl .val{color:var(--gcolor,#d98a2b)}
+  .page-settings input[type=range]{width:90px}
+  .page-settings select{background:#fff;color:#2c2822;border:1px solid #cfc7b8;border-radius:6px;padding:5px 7px;font-size:12px}
+  .page-settings .chk{color:#5f574a;font-size:11px}
+  .page-settings .chk input{width:14px;height:14px}
   .row{display:flex}
   .cell{position:relative;overflow:hidden;background:#f0ece4}
   .cell img{width:100%;height:100%;object-fit:cover;display:block;pointer-events:none}
@@ -116,7 +124,7 @@
     .page.portrait{page:portraitpg}
     .page.landscape{page:landscapepg}
     .page.is-last{break-after:auto;page-break-after:auto}
-    .page-tag,.tools,.grip,.lowres{display:none!important}
+    .page-settings,.page-tag,.tools,.grip,.lowres{display:none!important}
   }
 </style>
 </head>
@@ -138,17 +146,17 @@
   </div>
 
   <div class="settings">
-    <div class="ctrl"><label>Fotek na stránku</label>
+    <div class="ctrl"><label>Výchozí fotek na stránku</label>
       <select id="perPage"><option>1</option><option>2</option><option>3</option><option selected>4</option><option>6</option></select></div>
-    <div class="ctrl"><label>Mezera <span class="val" id="gapVal"></span></label>
+    <div class="ctrl"><label>Výchozí mezera <span class="val" id="gapVal"></span></label>
       <input type="range" id="gap" min="0" max="16" value="4"></div>
     <div class="sep"></div>
-    <div class="ctrl"><label>Okraj <span class="val" id="marginVal"></span></label>
+    <div class="ctrl"><label>Výchozí okraj <span class="val" id="marginVal"></span></label>
       <input type="range" id="margin" min="0" max="28" value="12" disabled></div>
     <div class="ctrl"><label>&nbsp;</label>
       <label class="chk"><input type="checkbox" id="autoMargin" checked> Automatický okraj</label></div>
     <div class="sep"></div>
-    <div class="ctrl"><label>Orientace stránek</label>
+    <div class="ctrl"><label>Výchozí orientace</label>
       <select id="orient">
         <option value="auto" selected>Automaticky</option>
         <option value="portrait">Na výšku</option>
@@ -179,28 +187,64 @@ const MAXRATIO = 2;   // žádná fotka nesmí být (plochou) víc než 2× men�
 
 const GCOLORS = ['#d98a2b','#3f9a8f','#8a5a83','#6f8f4e','#b5673f','#4a6fa5'];
 let groups = [];
-let gid = 0, pid = 0, targetGid = null;
+let gid = 0, pid = 0, pgid = 0, targetGid = null;
 
 const S = { perPage:4, gap:4, margin:12, autoMargin:true, orient:'auto' };
+
+function newPageSettings(){
+  return { gap:S.gap, margin:S.margin, autoMargin:S.autoMargin, orient:S.orient };
+}
+function pageSettings(ps){
+  return {
+    gap: ps?.gap ?? S.gap,
+    margin: ps?.margin ?? S.margin,
+    autoMargin: ps?.autoMargin ?? S.autoMargin,
+    orient: ps?.orient ?? S.orient
+  };
+}
+function newGroup(name){
+  return { id:++gid, name, pages:[{ id:++pgid, photos:[], settings:newPageSettings() }] };
+}
+function allPhotos(g){ return g.pages.flatMap(p=>p.photos); }
+function photoCount(g){ return allPhotos(g).length; }
+function findPhoto(groupId, photoId){
+  const g=groups.find(x=>x.id===groupId); if(!g) return null;
+  for(const page of g.pages){
+    const i=page.photos.findIndex(p=>p.id===photoId);
+    if(i>=0) return { g, page, index:i };
+  }
+  return null;
+}
+function ensurePage(g){
+  if(!g.pages.length) g.pages.push({ id:++pgid, photos:[], settings:newPageSettings() });
+  return g.pages[g.pages.length-1];
+}
+function ensurePageCapacity(g){
+  const last=ensurePage(g);
+  if(last.photos.length>=S.perPage){
+    g.pages.push({ id:++pgid, photos:[], settings:newPageSettings() });
+  }
+}
+function revokeGroup(g){ g.pages.forEach(p=>p.photos.forEach(ph=>URL.revokeObjectURL(ph.url))); }
 
 /* ---------- toolbar controls ---------- */
 $('#printBtn').addEventListener('click', ()=> window.print());
 $('#clearBtn').addEventListener('click', ()=>{
-  groups.forEach(g=>g.photos.forEach(p=>URL.revokeObjectURL(p.url)));
-  groups=[{id:++gid, name:'Událost 1', photos:[]}]; render();
+  groups.forEach(revokeGroup);
+  groups=[newGroup('Událost 1')]; render();
 });
 $('#settingsToggle').addEventListener('click', ()=> $('#toolbar').classList.toggle('open'));
-$('#perPage').addEventListener('change', e=>{ S.perPage=+e.target.value; fitZoom(); render(); });
-$('#orient').addEventListener('change', e=>{ S.orient=e.target.value; fitZoom(); render(); });
+$('#perPage').addEventListener('change', e=>{ S.perPage=+e.target.value; });
+$('#orient').addEventListener('change', e=>{ S.orient=e.target.value; fitZoom(); });
 
 function bindRange(id,key,unit){
   const el=$('#'+id), lab=$('#'+id+'Val');
-  const upd=()=>{ S[key]=+el.value; lab.textContent=el.value+unit; render(); };
+  const upd=()=>{ S[key]=+el.value; lab.textContent=el.value+unit; };
   el.addEventListener('input',upd); upd();
 }
 bindRange('gap','gap',' mm');
 bindRange('margin','margin',' mm');
-$('#autoMargin').addEventListener('change', e=>{ S.autoMargin=e.target.checked; $('#margin').disabled=S.autoMargin; render(); });
+$('#autoMargin').addEventListener('change', e=>{ S.autoMargin=e.target.checked; $('#margin').disabled=S.autoMargin; });
 
 const zoomEl=$('#zoom'), zoomVal=$('#zoomVal');
 function setZoom(pct){ pct=Math.round(pct); zoomEl.value=pct; zoomVal.textContent=pct+'%'; document.documentElement.style.setProperty('--zoom',pct/100); }
@@ -216,15 +260,19 @@ function addFiles(id, list){
   let pending=files.length; if(!pending) return;
   files.forEach(f=>{
     const url=URL.createObjectURL(f); const img=new Image();
-    img.onload=()=>{ g.photos.push({id:++pid,url,w:img.naturalWidth,h:img.naturalHeight}); if(--pending===0){fitZoom();render();} };
+    img.onload=()=>{
+      ensurePageCapacity(g);
+      ensurePage(g).photos.push({id:++pid,url,w:img.naturalWidth,h:img.naturalHeight});
+      if(--pending===0){fitZoom();render();}
+    };
     img.onerror=()=>{ if(--pending===0){fitZoom();render();} };
     img.src=url;
   });
 }
 
 /* ---------- layout ---------- */
-function marginFor(count){
-  if(!S.autoMargin) return S.margin;
+function marginFor(count, settings){
+  if(!settings.autoMargin) return settings.margin;
   if(count<=1) return 10; if(count===2) return 8; if(count===3) return 7; if(count===4) return 6; return 5;
 }
 function compositions(n){
@@ -251,9 +299,9 @@ function betterArr(a,b){          // prefer size-balanced first, then bigger fil
   if(a.valid) return b.score>a.score ? b : a;      // both balanced -> better coverage
   return b.ratio<a.ratio ? b : a;                  // neither balanced -> least disparity
 }
-function bestArrangement(items, page){
-  const margin=marginFor(items.length);
-  const cW=page.w-2*margin, cH=page.h-2*margin, gap=S.gap;
+function bestArrangement(items, pageDims, settings){
+  const margin=marginFor(items.length, settings);
+  const cW=pageDims.w-2*margin, cH=pageDims.h-2*margin, gap=settings.gap;
   let best=null;
   for(const comp of compositions(items.length)){
     let i=0; const rp=[]; for(const c of comp){ rp.push(items.slice(i,i+c)); i+=c; }
@@ -266,87 +314,129 @@ function bestArrangement(items, page){
   return best ? {rows:best.rows, score:best.score, ratio:best.ratio, valid:best.valid, margin}
               : {rows:[], score:0, ratio:1, valid:true, margin};
 }
-function layoutPage(items){
-  if(S.orient==='auto'){
-    const p=bestArrangement(items,PORTRAIT);
-    const l=bestArrangement(items,LANDSCAPE);
+function layoutPage(items, settings){
+  if(settings.orient==='auto'){
+    const p=bestArrangement(items,PORTRAIT,settings);
+    const l=bestArrangement(items,LANDSCAPE,settings);
     const P={...p,orient:'portrait',dims:PORTRAIT}, L={...l,orient:'landscape',dims:LANDSCAPE};
-    if(p.valid!==l.valid) return p.valid ? P : L;            // keep sizes balanced
-    if(p.valid) return (l.score > p.score*1.06) ? L : P;     // both ok -> better fill, slight portrait bias
-    return (l.ratio < p.ratio) ? L : P;                      // neither ok -> least disparity
+    if(p.valid!==l.valid) return p.valid ? P : L;
+    if(p.valid) return (l.score > p.score*1.06) ? L : P;
+    return (l.ratio < p.ratio) ? L : P;
   }
-  const dims = S.orient==='landscape'?LANDSCAPE:PORTRAIT;
-  return {...bestArrangement(items,dims), orient:S.orient, dims};
+  const dims = settings.orient==='landscape'?LANDSCAPE:PORTRAIT;
+  return {...bestArrangement(items,dims,settings), orient:settings.orient, dims};
 }
 
 /* ---------- render ---------- */
 function plural(n){ return n===1?'fotka':(n>=2&&n<=4?'fotky':'fotek'); }
 function addGroupAfter(id){
   const idx=groups.findIndex(x=>x.id===id);
-  const ng={id:++gid, name:'Událost '+(groups.length+1), photos:[]};
+  const ng=newGroup('Událost '+(groups.length+1));
   groups.splice(idx+1,0,ng); render();
   const el=stack.querySelector('[data-gid="'+ng.id+'"]');
   if(el && el.scrollIntoView) el.scrollIntoView({behavior:'smooth',block:'center'});
 }
+function mkPageSettingsBar(page, onChange){
+  const ps=pageSettings(page.settings);
+  const bar=document.createElement('div'); bar.className='page-settings';
+  const gapCtrl=document.createElement('div'); gapCtrl.className='ctrl';
+  const gapLab=document.createElement('label'); gapLab.innerHTML='Mezera <span class="val">'+ps.gap+' mm</span>';
+  const gapR=document.createElement('input'); gapR.type='range'; gapR.min=0; gapR.max=16; gapR.value=ps.gap;
+  gapR.addEventListener('input', ()=>{ page.settings.gap=+gapR.value; gapLab.querySelector('.val').textContent=gapR.value+' mm'; onChange(); });
+  gapCtrl.append(gapLab,gapR);
+  const marginCtrl=document.createElement('div'); marginCtrl.className='ctrl';
+  const marginLab=document.createElement('label'); marginLab.innerHTML='Okraj <span class="val">'+ps.margin+' mm</span>';
+  const marginR=document.createElement('input'); marginR.type='range'; marginR.min=0; marginR.max=28; marginR.value=ps.margin; marginR.disabled=ps.autoMargin;
+  marginR.addEventListener('input', ()=>{ page.settings.margin=+marginR.value; marginLab.querySelector('.val').textContent=marginR.value+' mm'; onChange(); });
+  marginCtrl.append(marginLab,marginR);
+  const autoCtrl=document.createElement('div'); autoCtrl.className='ctrl';
+  const autoLab=document.createElement('label'); autoLab.innerHTML='&nbsp;';
+  const autoChk=document.createElement('label'); autoChk.className='chk';
+  const autoIn=document.createElement('input'); autoIn.type='checkbox'; autoIn.checked=ps.autoMargin;
+  autoIn.addEventListener('change', ()=>{ page.settings.autoMargin=autoIn.checked; marginR.disabled=autoIn.checked; onChange(); });
+  autoChk.append(autoIn, document.createTextNode(' Auto okraj'));
+  autoCtrl.append(autoLab,autoChk);
+  const orientCtrl=document.createElement('div'); orientCtrl.className='ctrl';
+  const orientLab=document.createElement('label'); orientLab.textContent='Orientace';
+  const orientSel=document.createElement('select');
+  [['auto','Automaticky'],['portrait','Na výšku'],['landscape','Na šířku']].forEach(([v,t])=>{
+    const o=document.createElement('option'); o.value=v; o.textContent=t; if(v===ps.orient) o.selected=true; orientSel.appendChild(o);
+  });
+  orientSel.addEventListener('change', ()=>{ page.settings.orient=orientSel.value; onChange(); });
+  orientCtrl.append(orientLab,orientSel);
+  bar.append(gapCtrl,marginCtrl,autoCtrl,orientCtrl);
+  return bar;
+}
 function render(){
-  const total=groups.reduce((s,g)=>s+g.photos.length,0);
+  const total=groups.reduce((s,g)=>s+photoCount(g),0);
   $('#count').textContent = groups.length+' skup. · '+total+' '+plural(total);
   stack.innerHTML='';
 
   groups.forEach((g,gi)=>{
     const color=GCOLORS[gi%GCOLORS.length];
     const sec=document.createElement('section'); sec.className='group'; sec.style.setProperty('--gcolor',color); sec.dataset.gid=g.id;
+    const count=photoCount(g);
 
     const head=document.createElement('div'); head.className='ghead';
     const badge=document.createElement('div'); badge.className='gbadge'; badge.textContent=gi+1;
     const name=document.createElement('input'); name.className='gname'; name.value=g.name; name.placeholder='Název události';
     name.addEventListener('input', ()=>{ g.name=name.value; });
-    const cnt=document.createElement('span'); cnt.className='gcount'; cnt.textContent=g.photos.length+' '+plural(g.photos.length);
+    const cnt=document.createElement('span'); cnt.className='gcount'; cnt.textContent=count+' '+plural(count);
     const add=document.createElement('button'); add.className='btn badd'; add.textContent='＋ Fotky'; add.onclick=()=>pickInto(g.id);
     const addG=document.createElement('button'); addG.className='btn bgroup'; addG.textContent='＋ Skupina'; addG.title='Přidat další událost'; addG.onclick=()=>addGroupAfter(g.id);
+    const addPage=document.createElement('button'); addPage.className='btn bgroup'; addPage.textContent='＋ Stránka'; addPage.title='Přidat prázdnou stránku'; addPage.onclick=()=>{ g.pages.push({id:++pgid,photos:[],settings:newPageSettings()}); render(); };
     const del=document.createElement('button'); del.className='btn gdel'; del.title='Smazat skupinu'; del.textContent='🗑';
     del.onclick=()=>{
-      if(g.photos.length && !confirm('Smazat skupinu „'+(g.name||'bez názvu')+'" i s fotkami?')) return;
-      g.photos.forEach(p=>URL.revokeObjectURL(p.url));
+      if(count && !confirm('Smazat skupinu „'+(g.name||'bez názvu')+'" i s fotkami?')) return;
+      revokeGroup(g);
       groups=groups.filter(x=>x.id!==g.id);
-      if(!groups.length) groups=[{id:++gid,name:'Událost 1',photos:[]}];
+      if(!groups.length) groups=[newGroup('Událost 1')];
       render();
     };
-    head.append(badge,name,cnt,add,addG,del); sec.appendChild(head);
+    head.append(badge,name,cnt,add,addPage,addG,del); sec.appendChild(head);
 
-    if(!g.photos.length){
+    if(!photoCount(g) && g.pages.length===1){
       const dz=document.createElement('div'); dz.className='gdrop';
       dz.innerHTML='<p>Zatím žádné fotky v této události.<br>Přetáhni je sem nebo klikni na „Fotky".</p>';
       const b=document.createElement('button'); b.className='btn badd'; b.textContent='Vybrat fotky'; b.onclick=()=>pickInto(g.id);
       dz.appendChild(b); wireDrop(dz,g.id); sec.appendChild(dz);
     } else {
       const gp=document.createElement('div'); gp.className='gpages'; wireDrop(gp,g.id);
-      const chunks=[]; for(let i=0;i<g.photos.length;i+=S.perPage) chunks.push(g.photos.slice(i,i+S.perPage));
-      chunks.forEach((chunk,ci)=>{
-        const {rows,margin,orient,dims}=layoutPage(chunk);
-        const pg=document.createElement('div'); pg.className='page '+orient;
-        pg.style.width=dims.w+'mm'; pg.style.height=dims.h+'mm'; pg.style.padding=margin+'mm'; pg.style.gap=S.gap+'mm';
+      const pageTotal=g.pages.length;
+      g.pages.forEach((page,ci)=>{
+        const settings=pageSettings(page.settings);
+        const {rows,margin,orient,dims}=layoutPage(page.photos,settings);
+        const wrap=document.createElement('div'); wrap.className='page-wrap';
         const tag=document.createElement('div'); tag.className='page-tag';
-        tag.textContent=(g.name||'Událost')+' — strana '+(ci+1)+'/'+chunks.length+(orient==='landscape'?' · na šířku':' · na výšku'); pg.appendChild(tag);
+        tag.textContent=(g.name||'Událost')+' — strana '+(ci+1)+'/'+pageTotal+' · '+page.photos.length+' '+plural(page.photos.length)+(orient==='landscape'?' · na šířku':' · na výšku');
+        wrap.appendChild(tag);
+        wrap.appendChild(mkPageSettingsBar(page, ()=>render()));
+        const pg=document.createElement('div'); pg.className='page '+orient;
+        pg.style.width=dims.w+'mm'; pg.style.height=dims.h+'mm'; pg.style.padding=margin+'mm'; pg.style.gap=settings.gap+'mm';
         rows.forEach(r=>{
-          const row=document.createElement('div'); row.className='row'; row.style.height=r.h+'mm'; row.style.gap=S.gap+'mm';
+          const row=document.createElement('div'); row.className='row'; row.style.height=r.h+'mm'; row.style.gap=settings.gap+'mm';
           r.cells.forEach(c=>{
             const cell=document.createElement('div'); cell.className='cell'; cell.style.width=c.w+'mm'; cell.style.height=c.h+'mm';
-            cell.dataset.pid=c.p.id; cell.dataset.gid=g.id;
+            cell.dataset.pid=c.p.id; cell.dataset.gid=g.id; cell.dataset.pgid=page.id;
             const im=document.createElement('img'); im.src=c.p.url; cell.appendChild(im);
             const dpi=c.p.w/(c.w/25.4);
             if(dpi<150){ const b=document.createElement('div'); b.className='lowres'; b.textContent=Math.round(dpi)+' DPI'; b.title='Nízké rozlišení pro tisk.'; cell.appendChild(b); }
-            const grip=document.createElement('div'); grip.className='grip'; grip.dataset.pid=c.p.id; grip.dataset.gid=g.id; cell.appendChild(grip);
+            const grip=document.createElement('div'); grip.className='grip'; grip.dataset.pid=c.p.id; grip.dataset.gid=g.id; grip.dataset.pgid=page.id; cell.appendChild(grip);
             const tools=document.createElement('div'); tools.className='tools';
             const mv=document.createElement('div'); mv.className='move';
-            mv.append(mkBtn('‹','Dozadu',()=>movePhoto(g.id,c.p.id,-1)), mkBtn('›','Dopředu',()=>movePhoto(g.id,c.p.id,1)));
-            tools.append(mv, mkBtn('×','Odebrat',()=>{ g.photos=g.photos.filter(x=>x.id!==c.p.id); render(); }));
+            mv.append(mkBtn('‹','Dozadu',()=>movePhoto(g.id,page.id,c.p.id,-1)), mkBtn('›','Dopředu',()=>movePhoto(g.id,page.id,c.p.id,1)));
+            tools.append(mv, mkBtn('×','Odebrat',()=>{
+              page.photos=page.photos.filter(x=>x.id!==c.p.id);
+              if(!page.photos.length && g.pages.length>1) g.pages=g.pages.filter(x=>x.id!==page.id);
+              render();
+            }));
             cell.appendChild(tools);
             row.appendChild(cell);
           });
           pg.appendChild(row);
         });
-        gp.appendChild(pg);
+        wrap.appendChild(pg);
+        gp.appendChild(wrap);
       });
       sec.appendChild(gp);
     }
@@ -358,11 +448,24 @@ function render(){
   enableDrag();
 }
 function mkBtn(t,title,fn){ const b=document.createElement('button'); b.className='tbtn'; b.textContent=t; b.title=title; b.onclick=e=>{e.stopPropagation();fn();}; return b; }
-function movePhoto(groupId,photoId,dir){
+function movePhoto(groupId, pageId, photoId, dir){
   const g=groups.find(x=>x.id===groupId); if(!g) return;
-  const i=g.photos.findIndex(p=>p.id===photoId), j=i+dir;
-  if(j<0||j>=g.photos.length) return;
-  [g.photos[i],g.photos[j]]=[g.photos[j],g.photos[i]]; render();
+  const pi=g.pages.findIndex(p=>p.id===pageId); if(pi<0) return;
+  const page=g.pages[pi];
+  const i=page.photos.findIndex(p=>p.id===photoId); if(i<0) return;
+  const j=i+dir;
+  if(j>=0 && j<page.photos.length){
+    [page.photos[i],page.photos[j]]=[page.photos[j],page.photos[i]];
+    render(); return;
+  }
+  const tpi=pi+dir;
+  if(tpi<0 || tpi>=g.pages.length) return;
+  const moved=page.photos.splice(i,1)[0];
+  const target=g.pages[tpi];
+  if(dir>0) target.photos.unshift(moved);
+  else target.photos.push(moved);
+  if(!page.photos.length && g.pages.length>1) g.pages=g.pages.filter(p=>p.photos.length>0);
+  render();
 }
 
 /* ---------- drop files onto a group ---------- */
@@ -383,7 +486,7 @@ function enableDrag(){
   stack.querySelectorAll('.grip').forEach(g=>{
     g.addEventListener('pointerdown',e=>{
       if(e.button && e.button!==0) return;
-      drag={pid:+g.dataset.pid, gid:+g.dataset.gid, x:e.clientX, y:e.clientY, active:false, cell:g.closest('.cell')};
+      drag={pid:+g.dataset.pid, gid:+g.dataset.gid, pgid:+g.dataset.pgid, x:e.clientX, y:e.clientY, active:false, cell:g.closest('.cell')};
       document.addEventListener('pointermove',onMove); document.addEventListener('pointerup',onUp);
     });
   });
@@ -393,7 +496,8 @@ function onMove(e){
   if(!drag.active){
     if(Math.hypot(e.clientX-drag.x,e.clientY-drag.y)<8) return;
     drag.active=true; drag.cell.classList.add('dragging');
-    const g=groups.find(x=>x.id===drag.gid); const p=g&&g.photos.find(x=>x.id===drag.pid);
+    const loc=findPhoto(drag.gid, drag.pid);
+    const p=loc && loc.page.photos.find(x=>x.id===drag.pid);
     if(p){ ghostImg.src=p.url; ghost.style.display='block'; }
     document.body.style.userSelect='none';
   }
@@ -410,13 +514,18 @@ function onUp(e){
     const el=document.elementFromPoint(e.clientX,e.clientY);
     const t=el&&el.closest?el.closest('.cell'):null;
     if(t && +t.dataset.gid===drag.gid){
-      const tid=+t.dataset.pid;
+      const tid=+t.dataset.pid, tpgid=+t.dataset.pgid;
       if(tid!==drag.pid){
         const g=groups.find(x=>x.id===drag.gid);
-        const from=g.photos.findIndex(p=>p.id===drag.pid);
-        const moved=g.photos.splice(from,1)[0];
-        const to=g.photos.findIndex(p=>p.id===tid);
-        g.photos.splice(to,0,moved);
+        const fromPage=g.pages.find(p=>p.id===drag.pgid);
+        const toPage=g.pages.find(p=>p.id===tpgid);
+        if(fromPage && toPage){
+          const from=fromPage.photos.findIndex(p=>p.id===drag.pid);
+          const moved=fromPage.photos.splice(from,1)[0];
+          const to=toPage.photos.findIndex(p=>p.id===tid);
+          toPage.photos.splice(to,0,moved);
+          if(!fromPage.photos.length && g.pages.length>1) g.pages=g.pages.filter(p=>p.photos.length>0);
+        }
       }
     }
     ghost.style.display='none'; document.body.style.userSelect=''; render();
@@ -426,7 +535,13 @@ function onUp(e){
 
 /* ---------- fit to width ---------- */
 function fitZoom(){
-  const wMax = (S.orient==='portrait') ? PORTRAIT.w : LANDSCAPE.w;  // widest page that may appear
+  let wMax=PORTRAIT.w;
+  groups.forEach(g=>g.pages.forEach(page=>{
+    const s=pageSettings(page.settings);
+    if(s.orient==='landscape') wMax=Math.max(wMax,LANDSCAPE.w);
+    else if(s.orient==='auto') wMax=Math.max(wMax,PORTRAIT.w,LANDSCAPE.w);
+  }));
+  if(S.orient==='landscape') wMax=Math.max(wMax,LANDSCAPE.w);
   const pagePx=wMax*MM;
   const pad=parseFloat(getComputedStyle(workspace).paddingLeft)||0;
   const avail=workspace.clientWidth-2*pad;
@@ -436,7 +551,7 @@ function fitZoom(){
 let rt; window.addEventListener('resize',()=>{ clearTimeout(rt); rt=setTimeout(fitZoom,150); });
 
 /* ---------- init ---------- */
-groups=[{id:++gid, name:'Událost 1', photos:[]}];
+groups=[newGroup('Událost 1')];
 fitZoom();
 render();
 </script>
