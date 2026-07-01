@@ -1,0 +1,444 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Rozvržení fotek na A4</title>
+<style>
+  :root{
+    --ink:#1c1a17; --panel:#26231e; --panel-2:#302c26; --line:#3d382f;
+    --paper:#ffffff; --canvas:#e8e4dc; --amber:#d98a2b; --amber-hi:#eaa23f;
+    --text:#f4efe6; --muted:#b3aa9a; --warn:#e05a4d;
+    --zoom:0.6; --mm:3.779528px;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%}
+  body{background:var(--canvas);color:var(--ink);font-family:ui-sans-serif,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;display:flex;flex-direction:column;height:100vh;overflow:hidden;-webkit-text-size-adjust:100%}
+
+  /* Toolbar */
+  .toolbar{background:var(--panel);color:var(--text);border-bottom:1px solid var(--line);padding:12px 18px;box-shadow:0 2px 16px rgba(0,0,0,.18);z-index:5}
+  .bar{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+  .brand{display:flex;flex-direction:column;line-height:1.05;margin-right:4px}
+  .brand b{font-size:15px;letter-spacing:.02em;font-weight:650}
+  .brand span{font-size:11px;color:var(--muted);letter-spacing:.04em}
+  .settings{display:flex;align-items:flex-end;gap:20px;margin-top:12px;flex-wrap:wrap}
+  .settings .sep{width:1px;align-self:stretch;background:var(--line)}
+  .ctrl{display:flex;flex-direction:column;gap:4px}
+  .ctrl label{font-size:10px;color:var(--muted);letter-spacing:.06em;text-transform:uppercase;display:flex;gap:6px;align-items:center}
+  .ctrl .val{color:var(--amber-hi);font-variant-numeric:tabular-nums}
+  input[type=range]{width:120px;accent-color:var(--amber);cursor:pointer}
+  input[type=range]:disabled{opacity:.4;cursor:not-allowed}
+  select{background:var(--panel-2);color:var(--text);border:1px solid var(--line);border-radius:7px;padding:7px 9px;font-size:13px;cursor:pointer}
+  .chk{display:inline-flex;align-items:center;gap:6px;color:var(--text);font-size:12px;cursor:pointer;user-select:none}
+  .chk input{accent-color:var(--amber);width:15px;height:15px}
+  button{font-family:inherit;cursor:pointer;border:none;border-radius:8px;font-size:13px}
+  .btn{background:var(--panel-2);color:var(--text);border:1px solid var(--line);padding:9px 14px;display:inline-flex;align-items:center;gap:8px;transition:background .15s,border-color .15s;white-space:nowrap}
+  .btn:hover{background:#3a352d;border-color:#4a443a}
+  .btn.primary{background:var(--amber);border-color:var(--amber);color:#241a08;font-weight:650}
+  .btn.primary:hover{background:var(--amber-hi)}
+  .btn.ghost{background:transparent}
+  .btn svg{width:16px;height:16px}
+  .spacer{flex:1}
+  .count{font-size:12px;color:var(--muted);white-space:nowrap}
+  .toggle{display:none}
+
+  /* Workspace */
+  .workspace{flex:1;overflow:auto;padding:30px 20px 70px;-webkit-overflow-scrolling:touch}
+  .stack{display:flex;flex-direction:column;align-items:center;gap:40px}
+
+  /* Group */
+  .group{width:100%;display:flex;flex-direction:column;align-items:center;gap:18px}
+  .ghead{width:min(94vw,820px);display:flex;align-items:center;gap:10px;flex-wrap:wrap;background:#f3efe8;border:1px solid #d8d1c4;border-left:5px solid var(--gcolor,#d98a2b);border-radius:10px;padding:10px 12px 10px 14px;box-shadow:0 1px 4px rgba(0,0,0,.06)}
+  .gbadge{width:26px;height:26px;border-radius:50%;background:var(--gcolor);color:#fff;font-size:13px;font-weight:700;display:flex;align-items:center;justify-content:center;flex:0 0 auto}
+  .gname{border:none;background:transparent;font-size:16px;font-weight:650;color:#2c2822;padding:4px;border-radius:6px;min-width:60px;flex:1 1 120px}
+  .gname:hover{background:#eae4d9}
+  .gname:focus{outline:2px solid var(--gcolor);background:#fff}
+  .gcount{font-size:12px;color:#8a8172;white-space:nowrap}
+  .ghead .btn{padding:7px 11px;font-size:12px}
+  .badd{background:var(--gcolor);border-color:var(--gcolor);color:#fff;font-weight:600}
+  .badd:hover{filter:brightness(1.08)}
+  .bgroup{background:#fff;border:1px solid #cfc7b8;color:#5f574a}
+  .bgroup:hover{border-color:var(--gcolor);color:var(--gcolor)}
+  .gdel{background:transparent;border:1px solid #cfc7b8;color:#8a8172;width:32px;padding:0;justify-content:center}
+  .gdel:hover{background:#eee6da;color:#b5453a}
+
+  .gpages{zoom:var(--zoom);display:flex;flex-direction:column;align-items:center;gap:26px}
+  .gdrop{width:min(94vw,820px);border:2px dashed #c3bcae;border-radius:12px;background:#efece5;color:#7a7263;text-align:center;padding:34px 20px;transition:border-color .15s,background .15s}
+  .gdrop.hot{border-color:var(--gcolor);background:#f4ede0}
+  .gdrop p{margin:0 0 14px;font-size:13px}
+
+  .page{background:var(--paper);box-shadow:0 6px 30px rgba(0,0,0,.22);position:relative;overflow:hidden;display:flex;flex-direction:column;justify-content:center;align-items:center}
+  .page-tag{position:absolute;top:-23px;left:2px;font-size:12px;color:#8a8172;letter-spacing:.04em}
+  .row{display:flex}
+  .cell{position:relative;overflow:hidden;background:#f0ece4}
+  .cell img{width:100%;height:100%;object-fit:cover;display:block;pointer-events:none}
+  .cell.dragging{opacity:.3}
+  .cell.dropzone{outline:3px solid var(--amber);outline-offset:-3px}
+  .cell .grip{position:absolute;inset:0;cursor:grab;z-index:1;touch-action:none}
+  .tools{position:absolute;top:6px;left:6px;right:6px;display:flex;justify-content:space-between;gap:6px;z-index:2;opacity:0;transition:opacity .12s}
+  .cell:hover .tools{opacity:1}
+  .tbtn{width:26px;height:26px;border-radius:50%;background:rgba(20,18,15,.74);color:#fff;font-size:15px;line-height:1;display:flex;align-items:center;justify-content:center;border:none;cursor:pointer}
+  .tbtn:hover{background:rgba(20,18,15,.92)}
+  .tools .move{display:flex;gap:6px}
+  .cell .lowres{position:absolute;left:6px;bottom:6px;background:var(--warn);color:#fff;font-size:10px;font-weight:650;padding:2px 7px;border-radius:4px;z-index:2}
+
+  @media (max-width:820px){
+    .toolbar{padding:10px 14px}
+    .brand span{display:none}
+    .settings{display:none;flex-direction:column;align-items:stretch;gap:16px;margin-top:14px;padding-top:12px;border-top:1px solid var(--line)}
+    .settings .sep{display:none}
+    .toolbar.open .settings{display:flex}
+    .toggle{display:inline-flex}
+    .ctrl{width:100%}
+    input[type=range],select{width:100%}
+    .btn{padding:12px 15px;font-size:15px}
+    .workspace{padding:16px 10px 60px}
+    .gname{flex:1 1 100%;order:-1;font-size:17px}
+    .tools{opacity:1}
+    .tbtn{width:30px;height:30px;font-size:17px}
+  }
+
+  #ghost{position:fixed;pointer-events:none;z-index:999;width:110px;height:110px;border-radius:8px;overflow:hidden;box-shadow:0 8px 24px rgba(0,0,0,.35);opacity:.9;transform:translate(-50%,-50%);display:none}
+  #ghost img{width:100%;height:100%;object-fit:cover}
+
+  @media print{
+    @page{ margin:0 }
+    @page portraitpg{ size:A4 portrait; margin:0 }
+    @page landscapepg{ size:A4 landscape; margin:0 }
+    body{background:#fff;height:auto;overflow:visible;display:block}
+    .toolbar,#ghost{display:none!important}
+    .workspace{overflow:visible;padding:0;display:block}
+    .stack{gap:0;display:block}
+    .group{display:block}
+    .ghead,.gdrop{display:none!important}
+    .gpages{zoom:1;gap:0;display:block}
+    .page{box-shadow:none;break-after:page;page-break-after:always}
+    .page.portrait{page:portraitpg}
+    .page.landscape{page:landscapepg}
+    .page.is-last{break-after:auto;page-break-after:auto}
+    .page-tag,.tools,.grip,.lowres{display:none!important}
+  }
+</style>
+</head>
+<body>
+
+<div class="toolbar" id="toolbar">
+  <div class="bar">
+    <div class="brand"><b>Fotky na A4</b><span>fotky podle událostí, k tisku</span></div>
+    <span class="count" id="count"></span>
+    <div class="spacer"></div>
+    <button class="btn toggle" id="settingsToggle">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-2.9 1.34V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 8 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 3.6 15H3.5a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 5 8.6l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 5.6h.09A1.65 1.65 0 0 0 11 4V3.5a2 2 0 0 1 4 0v.09A1.65 1.65 0 0 0 16 5.6l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 18.4 9v.09A1.65 1.65 0 0 0 20 11h.5a2 2 0 0 1 0 4H20a1.65 1.65 0 0 0-.6.9z"/></svg>
+      Nastavení
+    </button>
+    <button class="btn primary" id="printBtn">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9V2h12v7M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2M6 14h12v8H6z"/></svg>
+      Tisk / PDF
+    </button>
+  </div>
+
+  <div class="settings">
+    <div class="ctrl"><label>Fotek na stránku</label>
+      <select id="perPage"><option>1</option><option>2</option><option>3</option><option selected>4</option><option>6</option></select></div>
+    <div class="ctrl"><label>Mezera <span class="val" id="gapVal"></span></label>
+      <input type="range" id="gap" min="0" max="16" value="4"></div>
+    <div class="sep"></div>
+    <div class="ctrl"><label>Okraj <span class="val" id="marginVal"></span></label>
+      <input type="range" id="margin" min="0" max="28" value="12" disabled></div>
+    <div class="ctrl"><label>&nbsp;</label>
+      <label class="chk"><input type="checkbox" id="autoMargin" checked> Automatický okraj</label></div>
+    <div class="sep"></div>
+    <div class="ctrl"><label>Orientace stránek</label>
+      <select id="orient">
+        <option value="auto" selected>Automaticky</option>
+        <option value="portrait">Na výšku</option>
+        <option value="landscape">Na šířku</option>
+      </select></div>
+    <div class="ctrl"><label>Přiblížení <span class="val" id="zoomVal"></span></label>
+      <input type="range" id="zoom" min="20" max="100" value="60"></div>
+    <div class="sep"></div>
+    <div class="ctrl"><label>&nbsp;</label>
+      <button class="btn ghost" id="clearBtn">Vymazat vše</button></div>
+  </div>
+</div>
+
+<div class="workspace" id="workspace"><div class="stack" id="stack"></div></div>
+
+<input type="file" id="file" accept="image/*" multiple hidden>
+<div id="ghost"><img alt=""></div>
+
+<script>
+const $ = s => document.querySelector(s);
+const workspace = $('#workspace');
+const stack = $('#stack');
+const fileInput = $('#file');
+const MM = 3.779528;
+const PORTRAIT = {w:210,h:297};
+const LANDSCAPE = {w:297,h:210};
+const MAXRATIO = 2;   // žádná fotka nesmí být (plochou) víc než 2× menší než jiná na stránce
+
+const GCOLORS = ['#d98a2b','#3f9a8f','#8a5a83','#6f8f4e','#b5673f','#4a6fa5'];
+let groups = [];
+let gid = 0, pid = 0, targetGid = null;
+
+const S = { perPage:4, gap:4, margin:12, autoMargin:true, orient:'auto' };
+
+/* ---------- toolbar controls ---------- */
+$('#printBtn').addEventListener('click', ()=> window.print());
+$('#clearBtn').addEventListener('click', ()=>{
+  groups.forEach(g=>g.photos.forEach(p=>URL.revokeObjectURL(p.url)));
+  groups=[{id:++gid, name:'Událost 1', photos:[]}]; render();
+});
+$('#settingsToggle').addEventListener('click', ()=> $('#toolbar').classList.toggle('open'));
+$('#perPage').addEventListener('change', e=>{ S.perPage=+e.target.value; fitZoom(); render(); });
+$('#orient').addEventListener('change', e=>{ S.orient=e.target.value; fitZoom(); render(); });
+
+function bindRange(id,key,unit){
+  const el=$('#'+id), lab=$('#'+id+'Val');
+  const upd=()=>{ S[key]=+el.value; lab.textContent=el.value+unit; render(); };
+  el.addEventListener('input',upd); upd();
+}
+bindRange('gap','gap',' mm');
+bindRange('margin','margin',' mm');
+$('#autoMargin').addEventListener('change', e=>{ S.autoMargin=e.target.checked; $('#margin').disabled=S.autoMargin; render(); });
+
+const zoomEl=$('#zoom'), zoomVal=$('#zoomVal');
+function setZoom(pct){ pct=Math.round(pct); zoomEl.value=pct; zoomVal.textContent=pct+'%'; document.documentElement.style.setProperty('--zoom',pct/100); }
+zoomEl.addEventListener('input', ()=>setZoom(+zoomEl.value));
+setZoom(60);
+
+/* ---------- files ---------- */
+function pickInto(id){ targetGid=id; fileInput.click(); }
+fileInput.addEventListener('change', e=>{ addFiles(targetGid, e.target.files); fileInput.value=''; });
+function addFiles(id, list){
+  const g=groups.find(x=>x.id===id); if(!g) return;
+  const files=[...list].filter(f=>f.type.startsWith('image/'));
+  let pending=files.length; if(!pending) return;
+  files.forEach(f=>{
+    const url=URL.createObjectURL(f); const img=new Image();
+    img.onload=()=>{ g.photos.push({id:++pid,url,w:img.naturalWidth,h:img.naturalHeight}); if(--pending===0){fitZoom();render();} };
+    img.onerror=()=>{ if(--pending===0){fitZoom();render();} };
+    img.src=url;
+  });
+}
+
+/* ---------- layout ---------- */
+function marginFor(count){
+  if(!S.autoMargin) return S.margin;
+  if(count<=1) return 10; if(count===2) return 8; if(count===3) return 7; if(count===4) return 6; return 5;
+}
+function compositions(n){
+  const out=[]; (function rec(rem,cur){ if(rem===0){out.push(cur.slice());return;} for(let k=1;k<=rem;k++){cur.push(k);rec(rem-k,cur);cur.pop();} })(n,[]); return out;
+}
+function evalArrangement(rp, cW, cH, gap){
+  const k=rp.length;
+  const info=rp.map(ph=>{ const arSum=ph.reduce((s,p)=>s+p.w/p.h,0); return {ph,arSum,hmax:(cW-gap*(ph.length-1))/arSum}; });
+  const sumH=info.reduce((s,r)=>s+r.hmax,0);
+  const availH=cH-gap*(k-1); if(availH<=0) return null;
+  const scale=Math.min(1, availH/sumH);
+  let area=0;
+  const rows=info.map(r=>{ const h=r.hmax*scale; const cells=r.ph.map(p=>{const w=h*(p.w/p.h);area+=w*h;return {p,w,h};}); return {h,cells}; });
+  return {rows, score:area/(cW*cH)};
+}
+function areaRatio(rows){
+  let mn=Infinity, mx=0;
+  rows.forEach(r=>r.cells.forEach(c=>{ const a=c.w*c.h; if(a<mn)mn=a; if(a>mx)mx=a; }));
+  return mn>0 ? mx/mn : 1;
+}
+function betterArr(a,b){          // prefer size-balanced first, then bigger fill
+  if(!a) return b; if(!b) return a;
+  if(a.valid!==b.valid) return a.valid ? a : b;   // balanced (ratio<=2) wins
+  if(a.valid) return b.score>a.score ? b : a;      // both balanced -> better coverage
+  return b.ratio<a.ratio ? b : a;                  // neither balanced -> least disparity
+}
+function bestArrangement(items, page){
+  const margin=marginFor(items.length);
+  const cW=page.w-2*margin, cH=page.h-2*margin, gap=S.gap;
+  let best=null;
+  for(const comp of compositions(items.length)){
+    let i=0; const rp=[]; for(const c of comp){ rp.push(items.slice(i,i+c)); i+=c; }
+    const res=evalArrangement(rp,cW,cH,gap);
+    if(!res) continue;
+    res.ratio=areaRatio(res.rows);
+    res.valid=res.ratio<=MAXRATIO;
+    best=betterArr(best,res);
+  }
+  return best ? {rows:best.rows, score:best.score, ratio:best.ratio, valid:best.valid, margin}
+              : {rows:[], score:0, ratio:1, valid:true, margin};
+}
+function layoutPage(items){
+  if(S.orient==='auto'){
+    const p=bestArrangement(items,PORTRAIT);
+    const l=bestArrangement(items,LANDSCAPE);
+    const P={...p,orient:'portrait',dims:PORTRAIT}, L={...l,orient:'landscape',dims:LANDSCAPE};
+    if(p.valid!==l.valid) return p.valid ? P : L;            // keep sizes balanced
+    if(p.valid) return (l.score > p.score*1.06) ? L : P;     // both ok -> better fill, slight portrait bias
+    return (l.ratio < p.ratio) ? L : P;                      // neither ok -> least disparity
+  }
+  const dims = S.orient==='landscape'?LANDSCAPE:PORTRAIT;
+  return {...bestArrangement(items,dims), orient:S.orient, dims};
+}
+
+/* ---------- render ---------- */
+function plural(n){ return n===1?'fotka':(n>=2&&n<=4?'fotky':'fotek'); }
+function addGroupAfter(id){
+  const idx=groups.findIndex(x=>x.id===id);
+  const ng={id:++gid, name:'Událost '+(groups.length+1), photos:[]};
+  groups.splice(idx+1,0,ng); render();
+  const el=stack.querySelector('[data-gid="'+ng.id+'"]');
+  if(el && el.scrollIntoView) el.scrollIntoView({behavior:'smooth',block:'center'});
+}
+function render(){
+  const total=groups.reduce((s,g)=>s+g.photos.length,0);
+  $('#count').textContent = groups.length+' skup. · '+total+' '+plural(total);
+  stack.innerHTML='';
+
+  groups.forEach((g,gi)=>{
+    const color=GCOLORS[gi%GCOLORS.length];
+    const sec=document.createElement('section'); sec.className='group'; sec.style.setProperty('--gcolor',color); sec.dataset.gid=g.id;
+
+    const head=document.createElement('div'); head.className='ghead';
+    const badge=document.createElement('div'); badge.className='gbadge'; badge.textContent=gi+1;
+    const name=document.createElement('input'); name.className='gname'; name.value=g.name; name.placeholder='Název události';
+    name.addEventListener('input', ()=>{ g.name=name.value; });
+    const cnt=document.createElement('span'); cnt.className='gcount'; cnt.textContent=g.photos.length+' '+plural(g.photos.length);
+    const add=document.createElement('button'); add.className='btn badd'; add.textContent='＋ Fotky'; add.onclick=()=>pickInto(g.id);
+    const addG=document.createElement('button'); addG.className='btn bgroup'; addG.textContent='＋ Skupina'; addG.title='Přidat další událost'; addG.onclick=()=>addGroupAfter(g.id);
+    const del=document.createElement('button'); del.className='btn gdel'; del.title='Smazat skupinu'; del.textContent='🗑';
+    del.onclick=()=>{
+      if(g.photos.length && !confirm('Smazat skupinu „'+(g.name||'bez názvu')+'" i s fotkami?')) return;
+      g.photos.forEach(p=>URL.revokeObjectURL(p.url));
+      groups=groups.filter(x=>x.id!==g.id);
+      if(!groups.length) groups=[{id:++gid,name:'Událost 1',photos:[]}];
+      render();
+    };
+    head.append(badge,name,cnt,add,addG,del); sec.appendChild(head);
+
+    if(!g.photos.length){
+      const dz=document.createElement('div'); dz.className='gdrop';
+      dz.innerHTML='<p>Zatím žádné fotky v této události.<br>Přetáhni je sem nebo klikni na „Fotky".</p>';
+      const b=document.createElement('button'); b.className='btn badd'; b.textContent='Vybrat fotky'; b.onclick=()=>pickInto(g.id);
+      dz.appendChild(b); wireDrop(dz,g.id); sec.appendChild(dz);
+    } else {
+      const gp=document.createElement('div'); gp.className='gpages'; wireDrop(gp,g.id);
+      const chunks=[]; for(let i=0;i<g.photos.length;i+=S.perPage) chunks.push(g.photos.slice(i,i+S.perPage));
+      chunks.forEach((chunk,ci)=>{
+        const {rows,margin,orient,dims}=layoutPage(chunk);
+        const pg=document.createElement('div'); pg.className='page '+orient;
+        pg.style.width=dims.w+'mm'; pg.style.height=dims.h+'mm'; pg.style.padding=margin+'mm'; pg.style.gap=S.gap+'mm';
+        const tag=document.createElement('div'); tag.className='page-tag';
+        tag.textContent=(g.name||'Událost')+' — strana '+(ci+1)+'/'+chunks.length+(orient==='landscape'?' · na šířku':' · na výšku'); pg.appendChild(tag);
+        rows.forEach(r=>{
+          const row=document.createElement('div'); row.className='row'; row.style.height=r.h+'mm'; row.style.gap=S.gap+'mm';
+          r.cells.forEach(c=>{
+            const cell=document.createElement('div'); cell.className='cell'; cell.style.width=c.w+'mm'; cell.style.height=c.h+'mm';
+            cell.dataset.pid=c.p.id; cell.dataset.gid=g.id;
+            const im=document.createElement('img'); im.src=c.p.url; cell.appendChild(im);
+            const dpi=c.p.w/(c.w/25.4);
+            if(dpi<150){ const b=document.createElement('div'); b.className='lowres'; b.textContent=Math.round(dpi)+' DPI'; b.title='Nízké rozlišení pro tisk.'; cell.appendChild(b); }
+            const grip=document.createElement('div'); grip.className='grip'; grip.dataset.pid=c.p.id; grip.dataset.gid=g.id; cell.appendChild(grip);
+            const tools=document.createElement('div'); tools.className='tools';
+            const mv=document.createElement('div'); mv.className='move';
+            mv.append(mkBtn('‹','Dozadu',()=>movePhoto(g.id,c.p.id,-1)), mkBtn('›','Dopředu',()=>movePhoto(g.id,c.p.id,1)));
+            tools.append(mv, mkBtn('×','Odebrat',()=>{ g.photos=g.photos.filter(x=>x.id!==c.p.id); render(); }));
+            cell.appendChild(tools);
+            row.appendChild(cell);
+          });
+          pg.appendChild(row);
+        });
+        gp.appendChild(pg);
+      });
+      sec.appendChild(gp);
+    }
+    stack.appendChild(sec);
+  });
+
+  const pages=stack.querySelectorAll('.page');
+  if(pages.length) pages[pages.length-1].classList.add('is-last');
+  enableDrag();
+}
+function mkBtn(t,title,fn){ const b=document.createElement('button'); b.className='tbtn'; b.textContent=t; b.title=title; b.onclick=e=>{e.stopPropagation();fn();}; return b; }
+function movePhoto(groupId,photoId,dir){
+  const g=groups.find(x=>x.id===groupId); if(!g) return;
+  const i=g.photos.findIndex(p=>p.id===photoId), j=i+dir;
+  if(j<0||j>=g.photos.length) return;
+  [g.photos[i],g.photos[j]]=[g.photos[j],g.photos[i]]; render();
+}
+
+/* ---------- drop files onto a group ---------- */
+function wireDrop(el,groupId){
+  ['dragenter','dragover'].forEach(ev=>el.addEventListener(ev,e=>{
+    if(e.dataTransfer && [...e.dataTransfer.items].some(i=>i.kind==='file')){ e.preventDefault(); el.classList.add('hot'); }
+  }));
+  ['dragleave','drop'].forEach(ev=>el.addEventListener(ev,e=>{
+    if(ev==='drop'){ e.preventDefault(); if(e.dataTransfer.files.length) addFiles(groupId,e.dataTransfer.files); }
+    el.classList.remove('hot');
+  }));
+}
+
+/* ---------- pointer drag reorder (within a group) ---------- */
+const ghost=$('#ghost'), ghostImg=ghost.querySelector('img');
+let drag=null;
+function enableDrag(){
+  stack.querySelectorAll('.grip').forEach(g=>{
+    g.addEventListener('pointerdown',e=>{
+      if(e.button && e.button!==0) return;
+      drag={pid:+g.dataset.pid, gid:+g.dataset.gid, x:e.clientX, y:e.clientY, active:false, cell:g.closest('.cell')};
+      document.addEventListener('pointermove',onMove); document.addEventListener('pointerup',onUp);
+    });
+  });
+}
+function onMove(e){
+  if(!drag) return;
+  if(!drag.active){
+    if(Math.hypot(e.clientX-drag.x,e.clientY-drag.y)<8) return;
+    drag.active=true; drag.cell.classList.add('dragging');
+    const g=groups.find(x=>x.id===drag.gid); const p=g&&g.photos.find(x=>x.id===drag.pid);
+    if(p){ ghostImg.src=p.url; ghost.style.display='block'; }
+    document.body.style.userSelect='none';
+  }
+  e.preventDefault();
+  ghost.style.left=e.clientX+'px'; ghost.style.top=e.clientY+'px';
+  const el=document.elementFromPoint(e.clientX,e.clientY);
+  const t=el&&el.closest?el.closest('.cell'):null;
+  stack.querySelectorAll('.cell.dropzone').forEach(c=>c.classList.remove('dropzone'));
+  if(t && +t.dataset.gid===drag.gid && +t.dataset.pid!==drag.pid) t.classList.add('dropzone');
+}
+function onUp(e){
+  document.removeEventListener('pointermove',onMove); document.removeEventListener('pointerup',onUp);
+  if(drag && drag.active){
+    const el=document.elementFromPoint(e.clientX,e.clientY);
+    const t=el&&el.closest?el.closest('.cell'):null;
+    if(t && +t.dataset.gid===drag.gid){
+      const tid=+t.dataset.pid;
+      if(tid!==drag.pid){
+        const g=groups.find(x=>x.id===drag.gid);
+        const from=g.photos.findIndex(p=>p.id===drag.pid);
+        const moved=g.photos.splice(from,1)[0];
+        const to=g.photos.findIndex(p=>p.id===tid);
+        g.photos.splice(to,0,moved);
+      }
+    }
+    ghost.style.display='none'; document.body.style.userSelect=''; render();
+  }
+  drag=null;
+}
+
+/* ---------- fit to width ---------- */
+function fitZoom(){
+  const wMax = (S.orient==='portrait') ? PORTRAIT.w : LANDSCAPE.w;  // widest page that may appear
+  const pagePx=wMax*MM;
+  const pad=parseFloat(getComputedStyle(workspace).paddingLeft)||0;
+  const avail=workspace.clientWidth-2*pad;
+  let z=avail/pagePx; z=Math.max(0.2,Math.min(1,z));
+  setZoom(z*100);
+}
+let rt; window.addEventListener('resize',()=>{ clearTimeout(rt); rt=setTimeout(fitZoom,150); });
+
+/* ---------- init ---------- */
+groups=[{id:++gid, name:'Událost 1', photos:[]}];
+fitZoom();
+render();
+</script>
+</body>
+</html>

@@ -1,0 +1,9 @@
+# Statická stránka – žádný build není potřeba.
+[build]
+  publish = "."
+
+# Jakákoli adresa vždy vrátí naši jedinou stránku.
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
