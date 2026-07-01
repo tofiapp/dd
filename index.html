@@ -67,7 +67,8 @@
   .gdrop.hot{border-color:var(--gcolor);background:#f4ede0}
   .gdrop p{margin:0 0 14px;font-size:13px}
 
-  .page{background:var(--paper);box-shadow:0 6px 30px rgba(0,0,0,.22);position:relative;overflow:hidden;display:flex;flex-direction:column;justify-content:center;align-items:center}
+  .page{background:var(--paper);box-shadow:0 6px 30px rgba(0,0,0,.22);position:relative;overflow:hidden;display:flex;flex-direction:column}
+  .page-inner{display:flex;flex-direction:column;margin:auto;flex-shrink:0}
   .page-wrap{display:flex;flex-direction:column;align-items:center;gap:8px}
   .page-tag{font-size:12px;color:#8a8172;letter-spacing:.04em;align-self:flex-start;padding-left:2px}
   .page-settings{display:flex;align-items:flex-end;gap:14px;flex-wrap:wrap;background:#f3efe8;border:1px solid #d8d1c4;border-radius:10px;padding:8px 12px;width:min(94vw,820px)}
@@ -237,13 +238,15 @@ const PRINT_CSS = `
 @page portraitpg{size:A4 portrait;margin:0}
 @page landscapepg{size:A4 landscape;margin:0}
 html,body{margin:0;padding:0;background:#fff}
-.page{background:#fff;overflow:hidden;display:flex;flex-direction:column;justify-content:center;align-items:center;box-shadow:none;break-inside:avoid;page-break-inside:avoid;break-after:page;page-break-after:always;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+.page{background:#fff;overflow:hidden;display:flex;flex-direction:column;box-shadow:none;break-inside:avoid;page-break-inside:avoid;break-after:page;page-break-after:always;-webkit-print-color-adjust:exact;print-color-adjust:exact}
 .page.portrait{page:portraitpg}
 .page.landscape{page:landscapepg}
 .page.is-last{break-after:auto;page-break-after:auto}
+.page-inner{display:flex;flex-direction:column;margin:auto;flex-shrink:0}
 .row{display:flex;flex-shrink:0}
 .cell{position:relative;overflow:hidden;background:#f0ece4;flex-shrink:0}
 .cell img{width:100%;height:100%;object-fit:cover;display:block}
+.tools,.grip,.lowres{display:none!important}
 `;
 
 async function blobToDataUrl(url){
@@ -280,6 +283,7 @@ function buildPrintHtml(){
   const pages = document.querySelectorAll('.page');
   const html = [...pages].map((pg,i)=>{
     const el = pg.cloneNode(true);
+    el.querySelectorAll('.tools,.grip,.lowres').forEach(n=>n.remove());
     el.classList.toggle('is-last', i===pages.length-1);
     return el.outerHTML;
   }).join('');
@@ -455,6 +459,9 @@ function mkPageSettingsBar(page, onChange){
   bar.append(gapCtrl,marginCtrl,autoCtrl,orientCtrl);
   return bar;
 }
+function rowWidth(cells, gap){
+  return cells.reduce((s,c)=>s+c.w,0) + gap * Math.max(0, cells.length - 1);
+}
 function render(){
   const total=groups.reduce((s,g)=>s+photoCount(g),0);
   $('#count').textContent = groups.length+' skup. · '+total+' '+plural(total);
@@ -500,9 +507,20 @@ function render(){
         wrap.appendChild(tag);
         wrap.appendChild(mkPageSettingsBar(page, ()=>render()));
         const pg=document.createElement('div'); pg.className='page '+orient;
-        pg.style.width=dims.w+'mm'; pg.style.height=dims.h+'mm'; pg.style.padding=margin+'mm'; pg.style.gap=settings.gap+'mm';
+        pg.style.width=dims.w+'mm'; pg.style.height=dims.h+'mm'; pg.style.padding=margin+'mm';
+        const inner=document.createElement('div'); inner.className='page-inner';
+        inner.style.gap=settings.gap+'mm';
+        let innerW=0, innerH=0;
+        rows.forEach((r,ri)=>{
+          innerH += r.h + (ri ? settings.gap : 0);
+          innerW = Math.max(innerW, rowWidth(r.cells, settings.gap));
+        });
+        inner.style.width=innerW+'mm';
+        inner.style.height=innerH+'mm';
         rows.forEach(r=>{
-          const row=document.createElement('div'); row.className='row'; row.style.height=r.h+'mm'; row.style.gap=settings.gap+'mm';
+          const row=document.createElement('div'); row.className='row';
+          row.style.height=r.h+'mm'; row.style.gap=settings.gap+'mm';
+          row.style.width=rowWidth(r.cells, settings.gap)+'mm';
           r.cells.forEach(c=>{
             const cell=document.createElement('div'); cell.className='cell'; cell.style.width=c.w+'mm'; cell.style.height=c.h+'mm';
             cell.dataset.pid=c.p.id; cell.dataset.gid=g.id; cell.dataset.pgid=page.id;
@@ -521,8 +539,9 @@ function render(){
             cell.appendChild(tools);
             row.appendChild(cell);
           });
-          pg.appendChild(row);
+          inner.appendChild(row);
         });
+        pg.appendChild(inner);
         wrap.appendChild(pg);
         gp.appendChild(wrap);
       });
