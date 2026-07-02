@@ -49,7 +49,7 @@
 
   /* Group */
   .group{width:100%;display:flex;flex-direction:column;align-items:center;gap:18px}
-  .ghead{width:min(94vw,calc(1640px + 20px));display:flex;align-items:center;gap:10px;flex-wrap:wrap;background:#f3efe8;border:1px solid #d8d1c4;border-left:5px solid var(--gcolor,#d98a2b);border-radius:10px;padding:10px 12px 10px 14px;box-shadow:0 1px 4px rgba(0,0,0,.06)}
+  .ghead{width:fit-content;max-width:min(94vw,100%);display:flex;align-items:center;gap:10px;flex-wrap:wrap;background:#f3efe8;border:1px solid #d8d1c4;border-left:5px solid var(--gcolor,#d98a2b);border-radius:10px;padding:10px 12px 10px 14px;box-shadow:0 1px 4px rgba(0,0,0,.06)}
   .gbadge{width:26px;height:26px;border-radius:50%;background:var(--gcolor);color:#fff;font-size:13px;font-weight:700;display:flex;align-items:center;justify-content:center;flex:0 0 auto}
   .gname{border:none;background:transparent;font-size:16px;font-weight:650;color:#2c2822;padding:4px;border-radius:6px;min-width:60px;flex:1 1 120px}
   .gname:hover{background:#eae4d9}
@@ -63,8 +63,8 @@
   .gdel{background:transparent;border:1px solid #cfc7b8;color:#8a8172;width:32px;padding:0;justify-content:center}
   .gdel:hover{background:#eee6da;color:#b5453a}
 
-  .gpages{zoom:var(--zoom);display:flex;flex-direction:column;align-items:center;gap:26px;width:min(94vw,calc(1640px + 20px))}
-  .grow{display:flex;flex-direction:row;align-items:flex-start;justify-content:center;gap:20px;flex-wrap:nowrap;width:100%}
+  .gpages{zoom:var(--zoom);display:flex;flex-direction:column;align-items:center;gap:26px;width:fit-content;max-width:100%}
+  .grow{display:flex;flex-direction:row;align-items:flex-start;justify-content:center;gap:20px;flex-wrap:nowrap;max-width:100%}
   .gdrop{width:100%;border:2px dashed #c3bcae;border-radius:12px;background:#efece5;color:#7a7263;text-align:center;padding:34px 20px;transition:border-color .15s,background .15s}
   .gdrop.hot{border-color:var(--gcolor);background:#f4ede0}
   .gdrop p{margin:0 0 14px;font-size:13px}
@@ -507,7 +507,6 @@ function mkAddCard(label, title, onClick){
   card.className='add-card';
   card.type='button';
   card.title=title;
-  card.dataset.orient='portrait';
   const icon=document.createElement('span'); icon.className='add-icon'; icon.textContent='＋';
   const lbl=document.createElement('span'); lbl.className='add-label'; lbl.textContent=label;
   card.append(icon,lbl);
@@ -520,40 +519,28 @@ function rowWidth(cells, gap){
 function pageCols(){
   return parseInt(getComputedStyle(document.documentElement).getPropertyValue('--page-cols')) || 1;
 }
-function pairIntoRows(items, cols){
-  if(cols <= 1) return items.map(el => [el]);
-  const remaining = items.map(el => ({ el, orient: el.dataset.orient || 'portrait' }));
+function chunkIntoRows(items, cols){
   const rows = [];
-  while(remaining.length){
-    const first = remaining.shift();
-    const matchIdx = remaining.findIndex(x => x.orient === first.orient);
-    if(matchIdx >= 0){
-      rows.push([first.el, remaining.splice(matchIdx, 1)[0].el]);
-    } else if(remaining.length){
-      rows.push([first.el, remaining.shift().el]);
-    } else {
-      rows.push([first.el]);
-    }
-  }
+  for(let i = 0; i < items.length; i += cols) rows.push(items.slice(i, i + cols));
   return rows;
 }
 function appendGpageRows(gp, items){
-  const cols = pageCols();
-  pairIntoRows(items, cols).forEach(row => {
+  chunkIntoRows(items, pageCols()).forEach(row => {
     const rowEl = document.createElement('div');
     rowEl.className = 'grow';
     row.forEach(el => rowEl.appendChild(el));
     gp.appendChild(rowEl);
   });
 }
-function maxRowWidthMm(widths, cols){
-  if(!widths.length) return PORTRAIT.w;
-  let maxW = 0;
+function maxRowWidthPx(widths, cols){
+  if(!widths.length) return PORTRAIT.w * MM;
+  let maxPx = 0;
   for(let i = 0; i < widths.length; i += cols){
     const row = widths.slice(i, i + cols);
-    maxW = Math.max(maxW, row.reduce((s, w) => s + w, 0));
+    const rowPx = row.reduce((s, w) => s + w, 0) * MM + Math.max(0, row.length - 1) * GPAGE_COL_GAP;
+    maxPx = Math.max(maxPx, rowPx);
   }
-  return maxW;
+  return maxPx;
 }
 function render(){
   const total=groups.reduce((s,g)=>s+photoCount(g),0);
@@ -588,7 +575,6 @@ function render(){
         const settings=pageSettings(page.settings);
         const {rows,margin,orient,dims}=layoutPage(page.photos,settings);
         const wrap=document.createElement('div'); wrap.className='page-wrap';
-        wrap.dataset.orient=orient;
         const tag=document.createElement('div'); tag.className='page-tag';
         tag.textContent=(g.name||'Událost')+' — strana '+(ci+1)+'/'+pageTotal+' · '+page.photos.length+' '+plural(page.photos.length);
         if(page.photos.length) tag.textContent+=(orient==='landscape'?' · na šířku':' · na výšku');
@@ -757,22 +743,32 @@ function onUp(e){
 /* ---------- fit to width ---------- */
 function fitZoom(){
   const cols = pageCols();
-  let maxRowPx = PORTRAIT.w * MM;
+  let maxRowPx = 0;
 
   groups.forEach(g => {
     const widths = g.pages.map(page => layoutPage(page.photos, pageSettings(page.settings)).dims.w);
     widths.push(PORTRAIT.w, PORTRAIT.w);
-    const rowWmm = maxRowWidthMm(widths, cols);
-    let rowPx = rowWmm * MM;
-    if(cols > 1) rowPx += GPAGE_COL_GAP * (cols - 1);
-    maxRowPx = Math.max(maxRowPx, rowPx);
+    maxRowPx = Math.max(maxRowPx, maxRowWidthPx(widths, cols));
   });
 
+  if(!maxRowPx) maxRowPx = maxRowWidthPx([PORTRAIT.w, PORTRAIT.w], cols);
+
   const pad = parseFloat(getComputedStyle(workspace).paddingLeft) || 0;
-  const avail = workspace.clientWidth - 2 * pad;
+  const avail = workspace.clientWidth - 2 * pad - 24;
   let z = avail / maxRowPx;
   z = Math.max(0.2, Math.min(1, z));
   setZoom(z * 100);
+
+  requestAnimationFrame(() => {
+    let measured = 0;
+    stack.querySelectorAll('.grow').forEach(row => {
+      measured = Math.max(measured, row.getBoundingClientRect().width);
+    });
+    if(measured > avail + 1){
+      const cur = parseFloat(zoomEl.value) / 100;
+      setZoom(Math.max(20, cur * avail / measured * 100));
+    }
+  });
 }
 let rt; window.addEventListener('resize',()=>{ clearTimeout(rt); rt=setTimeout(fitZoom,150); });
 
