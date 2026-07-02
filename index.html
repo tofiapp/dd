@@ -241,86 +241,83 @@ function ensurePageCapacity(g){
 }
 function revokeGroup(g){ g.pages.forEach(p=>p.photos.forEach(ph=>URL.revokeObjectURL(ph.url))); }
 
-/* ---------- print (iframe DOM; blob URLs — data URLs jen na iOS) ---------- */
+/* ---------- print (rasterizace na tiskové DPI, tisk z hlavního dokumentu) ---------- */
 const IS_IOS = /iPad|iPhone|iPod/.test(navigator.userAgent)
   || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
-const dataUrlCache = new Map();
+const PRINT_DPI = 300;
+const printCanvas = document.createElement('canvas');
+const printCtx = printCanvas.getContext('2d');
+let printRestore = null;
+let printPreparing = null;
 
-const PRINT_CSS = `
-*{box-sizing:border-box}
-@page{margin:0}
-@page portraitpg{size:A4 portrait;margin:0}
-@page landscapepg{size:A4 landscape;margin:0}
-html,body{margin:0;padding:0;background:#fff}
-.page{background:#fff;overflow:hidden;display:flex;flex-direction:column;box-sizing:border-box;box-shadow:none;break-inside:avoid;page-break-inside:avoid;break-after:page;page-break-after:always;-webkit-print-color-adjust:exact;print-color-adjust:exact}
-.page.portrait{width:210mm;height:297mm;page:portraitpg}
-.page.landscape{width:297mm;height:210mm;page:landscapepg}
-.page.is-last{break-after:auto;page-break-after:auto}
-.page-inner{display:flex;flex-direction:column;margin:auto;flex-shrink:0}
-.row{display:flex;flex-shrink:0}
-.cell{position:relative;overflow:hidden;background:#f0ece4;flex-shrink:0}
-.cell img{width:100%;height:100%;object-fit:cover;display:block;image-rendering:auto}
-.tools,.grip,.lowres{display:none!important}
-`;
+function mmToPx(mm){ return Math.round(mm * PRINT_DPI / 25.4); }
 
 async function blobToDataUrl(url){
-  if(dataUrlCache.has(url)) return dataUrlCache.get(url);
   const blob = await fetch(url).then(r=>r.blob());
-  const dataUrl = await new Promise((res,rej)=>{
+  return new Promise((res,rej)=>{
     const reader = new FileReader();
     reader.onload = ()=>res(reader.result);
     reader.onerror = rej;
     reader.readAsDataURL(blob);
   });
-  dataUrlCache.set(url, dataUrl);
-  return dataUrl;
 }
 
-async function imgSrcForPrint(src){
-  if(!src.startsWith('blob:') || !IS_IOS) return src;
-  try{ return await blobToDataUrl(src); }catch(_){ return src; }
-}
-
-function waitForImages(doc){
-  const imgs = doc.querySelectorAll('img');
-  return Promise.all([...imgs].map(img=>{
-    if(img.complete && img.naturalWidth) return Promise.resolve();
-    return new Promise(res=>{ img.onload = img.onerror = res; });
-  }));
-}
-
-async function buildPrintDocument(doc){
-  const style = doc.createElement('style');
-  style.textContent = PRINT_CSS;
-  doc.head.appendChild(style);
-  const pageEls = document.querySelectorAll('.page');
-  for(let i = 0; i < pageEls.length; i++){
-    const el = pageEls[i].cloneNode(true);
-    el.querySelectorAll('.tools,.grip,.lowres').forEach(n=>n.remove());
-    el.classList.toggle('is-last', i === pageEls.length - 1);
-    for(const img of el.querySelectorAll('.cell img')){
-      img.src = await imgSrcForPrint(img.getAttribute('src') || img.src);
-    }
-    doc.body.appendChild(el);
-    if(IS_IOS) await waitForImages(doc);
+async function loadPrintImage(src){
+  if(IS_IOS && src.startsWith('blob:')){
+    try{ src = await blobToDataUrl(src); }catch(_){}
   }
+  const img = new Image();
+  await new Promise((res,rej)=>{ img.onload=res; img.onerror=rej; img.src=src; });
+  if(img.decode) try{ await img.decode(); }catch(_){}
+  return img;
+}
+
+function rasterCover(img, wPx, hPx){
+  printCanvas.width = wPx;
+  printCanvas.height = hPx;
+  printCtx.clearRect(0, 0, wPx, hPx);
+  const scale = Math.max(wPx / img.naturalWidth, hPx / img.naturalHeight);
+  const sw = wPx / scale, sh = hPx / scale;
+  const sx = (img.naturalWidth - sw) / 2, sy = (img.naturalHeight - sh) / 2;
+  printCtx.drawImage(img, sx, sy, sw, sh, 0, 0, wPx, hPx);
+  return printCanvas.toDataURL('image/jpeg', 0.93);
+}
+
+async function prepareForPrint(){
+  if(printRestore) return;
+  if(printPreparing) return printPreparing;
+  printPreparing = (async ()=>{
+    printRestore = [];
+    const cells = document.querySelectorAll('.cell');
+    for(const cell of cells){
+      const img = cell.querySelector('img');
+      if(!img || !img.src) continue;
+      const wmm = parseFloat(cell.style.width);
+      const hmm = parseFloat(cell.style.height);
+      if(!wmm || !hmm) continue;
+      try{
+        const loaded = await loadPrintImage(img.src);
+        const dataUrl = rasterCover(loaded, mmToPx(wmm), mmToPx(hmm));
+        printRestore.push({img, src:img.src});
+        img.src = dataUrl;
+      }catch(_){}
+    }
+  })();
+  try{ await printPreparing; }finally{ printPreparing = null; }
+}
+
+function restoreAfterPrint(){
+  if(!printRestore) return;
+  printRestore.forEach(({img,src})=>{ img.src=src; });
+  printRestore = null;
 }
 
 async function doPrint(){
-  const iframe = document.createElement('iframe');
-  iframe.setAttribute('style','position:fixed;right:0;bottom:0;width:0;height:0;border:0;visibility:hidden');
-  document.body.appendChild(iframe);
-  const win = iframe.contentWindow;
-  const doc = win.document;
-  doc.open();
-  doc.write('<!DOCTYPE html><html lang="cs"><head><meta charset="UTF-8"><title>Tisk</title></head><body></body></html>');
-  doc.close();
-  await buildPrintDocument(doc);
-  await waitForImages(doc);
-  win.focus();
-  win.print();
-  setTimeout(()=> iframe.remove(), 1500);
+  await prepareForPrint();
+  window.print();
 }
+
+window.addEventListener('afterprint', restoreAfterPrint);
 
 /* ---------- toolbar controls ---------- */
 $('#printBtn').addEventListener('click', ()=> doPrint());
