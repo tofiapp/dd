@@ -258,7 +258,7 @@ function ensurePage(g){
 function ensurePageCapacity(g){
   const last=ensurePage(g);
   if(last.photos.length>=S.perPage){
-    g.pages.push({ id:++pgid, photos:[], settings:newPageSettings() });
+    g.pages.push(newEmptyPage());
   }
 }
 function revokeGroup(g){ g.pages.forEach(p=>p.photos.forEach(ph=>URL.revokeObjectURL(ph.url))); }
