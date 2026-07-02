@@ -68,8 +68,14 @@
   .gdrop{width:100%;border:2px dashed #c3bcae;border-radius:12px;background:#efece5;color:#7a7263;text-align:center;padding:34px 20px;transition:border-color .15s,background .15s}
   .gdrop.hot{border-color:var(--gcolor);background:#f4ede0}
   .gdrop p{margin:0 0 14px;font-size:13px}
-  .add-card{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;flex:0 0 auto;width:210mm;height:297mm;border:2px dashed #c3bcae;border-radius:12px;background:#efece5;color:#7a7263;cursor:pointer;transition:border-color .15s,background .15s,color .15s;font-family:inherit;font-size:14px;padding:20px}
+  .add-card{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;flex:0 0 auto;width:210mm;height:297mm;border:2px dashed #c3bcae;border-radius:12px;background:#efece5;color:#7a7263;cursor:pointer;transition:border-color .15s,background .15s,color .15s,box-shadow .15s;font-family:inherit;font-size:14px;padding:20px}
   .add-card:hover{border-color:var(--gcolor,#d98a2b);background:#f4ede0;color:var(--gcolor,#d98a2b)}
+  .add-card.add-group{border:3px dashed var(--gcolor,#d98a2b);background:linear-gradient(135deg,#f8f3ea 0%,#efe4d4 100%);color:#5f574a;box-shadow:inset 0 0 0 1px rgba(217,138,43,.15)}
+  .add-card.add-group:hover{background:linear-gradient(135deg,#f4ede0 0%,#e8dcc8 100%);box-shadow:inset 0 0 0 2px rgba(217,138,43,.25),0 4px 16px rgba(217,138,43,.12)}
+  .add-card.add-group .add-icon{font-size:40px;color:var(--gcolor,#d98a2b)}
+  .add-card.add-group .add-label{font-size:14px;font-weight:700;color:var(--gcolor,#d98a2b)}
+  .add-card.add-group .add-hint{font-size:11px;color:#8a8172;margin-top:-4px}
+  .add-card.drop-target{outline:4px solid var(--amber);outline-offset:-4px;border-color:var(--amber);background:#fff8eb;color:var(--amber)}
   .add-card .add-icon{font-size:32px;line-height:1;font-weight:300}
   .add-card .add-label{font-size:13px;font-weight:600;letter-spacing:.02em}
 
@@ -252,7 +258,7 @@ function ensurePage(g){
 function ensurePageCapacity(g){
   const last=ensurePage(g);
   if(last.photos.length>=S.perPage){
-    g.pages.push({ id:++pgid, photos:[], settings:newPageSettings() });
+    g.pages.push(newEmptyPage());
   }
 }
 function revokeGroup(g){ g.pages.forEach(p=>p.photos.forEach(ph=>URL.revokeObjectURL(ph.url))); }
@@ -502,16 +508,27 @@ function mkPageSettingsBar(page, onChange, computedMargin){
   bar.appendChild(body);
   return bar;
 }
-function mkAddCard(label, title, onClick){
+function mkAddCard(label, title, onClick, action, hint){
   const card=document.createElement('button');
-  card.className='add-card';
+  card.className='add-card'+(action==='group'?' add-group':'');
   card.type='button';
   card.title=title;
+  if(action) card.dataset.action=action;
   const icon=document.createElement('span'); icon.className='add-icon'; icon.textContent='＋';
   const lbl=document.createElement('span'); lbl.className='add-label'; lbl.textContent=label;
   card.append(icon,lbl);
+  if(hint){ const h=document.createElement('span'); h.className='add-hint'; h.textContent=hint; card.appendChild(h); }
   card.onclick=onClick;
   return card;
+}
+function newEmptyPage(){ return { id:++pgid, photos:[], settings:newPageSettings() }; }
+function pageForPhotoDrop(g, preferredPage){
+  if(preferredPage && preferredPage.photos.length < S.perPage) return preferredPage;
+  const last=ensurePage(g);
+  if(last.photos.length < S.perPage) return last;
+  const np=newEmptyPage();
+  g.pages.push(np);
+  return np;
 }
 function rowWidth(cells, gap){
   return cells.reduce((s,c)=>s+c.w,0) + gap * Math.max(0, cells.length - 1);
@@ -558,6 +575,7 @@ function render(){
     name.addEventListener('input', ()=>{ g.name=name.value; });
     const cnt=document.createElement('span'); cnt.className='gcount'; cnt.textContent=count+' '+plural(count);
     const add=document.createElement('button'); add.className='btn badd'; add.textContent='＋ Fotky'; add.onclick=()=>pickInto(g.id);
+    const addGrp=document.createElement('button'); addGrp.className='btn bgroup'; addGrp.textContent='＋ Skupina'; addGrp.title='Přidat další událost'; addGrp.onclick=()=>addGroupAfter(g.id);
     const del=document.createElement('button'); del.className='btn gdel'; del.title='Smazat skupinu'; del.textContent='🗑';
     del.onclick=()=>{
       if(count && !confirm('Smazat skupinu „'+(g.name||'bez názvu')+'" i s fotkami?')) return;
@@ -566,7 +584,7 @@ function render(){
       if(!groups.length) groups=[newGroup('Událost 1')];
       render();
     };
-    head.append(badge,name,cnt,add,del); sec.appendChild(head);
+    head.append(badge,name,cnt,add,addGrp,del); sec.appendChild(head);
 
     const gp=document.createElement('div'); gp.className='gpages'; wireDrop(gp,g.id);
     const pageTotal=g.pages.length;
@@ -626,8 +644,8 @@ function render(){
         pageItems.push(wrap);
       });
     pageItems.push(
-      mkAddCard('Stránka', 'Přidat prázdnou stránku', ()=>{ g.pages.push({id:++pgid,photos:[],settings:newPageSettings()}); render(); }),
-      mkAddCard('Skupina', 'Přidat další událost', ()=>addGroupAfter(g.id))
+      mkAddCard('Stránka', 'Přidat prázdnou stránku', ()=>{ g.pages.push(newEmptyPage()); render(); }, 'page'),
+      mkAddCard('Skupina', 'Přidat další událost', ()=>addGroupAfter(g.id), 'group', 'Přidat další událost')
     );
     appendGpageRows(gp, pageItems);
     sec.appendChild(gp);
@@ -683,6 +701,14 @@ function enableDrag(){
     });
   });
 }
+function clearDragHighlights(){
+  stack.querySelectorAll('.cell.dropzone').forEach(c=>c.classList.remove('dropzone'));
+  stack.querySelectorAll('.page.is-empty.drop-target').forEach(c=>c.classList.remove('drop-target'));
+  stack.querySelectorAll('.add-card.drop-target').forEach(c=>c.classList.remove('drop-target'));
+}
+function cleanupEmptyPages(g){
+  if(g.pages.length>1) g.pages=g.pages.filter(p=>p.photos.length>0);
+}
 function onMove(e){
   if(!drag) return;
   if(!drag.active){
@@ -696,10 +722,13 @@ function onMove(e){
   e.preventDefault();
   ghost.style.left=e.clientX+'px'; ghost.style.top=e.clientY+'px';
   const el=document.elementFromPoint(e.clientX,e.clientY);
+  const addPage=el?.closest?.('.add-card[data-action="page"]');
+  const groupEl=el?.closest?.('.group[data-gid]');
   const t=el?.closest?.('.cell') || el?.closest?.('.page.is-empty[data-pgid]');
-  stack.querySelectorAll('.cell.dropzone').forEach(c=>c.classList.remove('dropzone'));
-  stack.querySelectorAll('.page.is-empty.drop-target').forEach(c=>c.classList.remove('drop-target'));
-  if(t){
+  clearDragHighlights();
+  if(addPage && groupEl && +groupEl.dataset.gid===drag.gid){
+    addPage.classList.add('drop-target');
+  } else if(t){
     if(t.classList.contains('cell') && +t.dataset.gid===drag.gid && +t.dataset.pid!==drag.pid) t.classList.add('dropzone');
     else if(t.classList.contains('page') && +t.dataset.gid===drag.gid && +t.dataset.pgid!==drag.pgid) t.classList.add('drop-target');
   }
@@ -708,31 +737,44 @@ function onUp(e){
   document.removeEventListener('pointermove',onMove); document.removeEventListener('pointerup',onUp);
   if(drag && drag.active){
     const el=document.elementFromPoint(e.clientX,e.clientY);
+    const addPage=el?.closest?.('.add-card[data-action="page"]');
+    const groupEl=el?.closest?.('.group[data-gid]');
     const t=el?.closest?.('.cell');
     const drop=el?.closest?.('.page.is-empty[data-pgid]');
-    if(t && +t.dataset.gid===drag.gid){
-      const tid=+t.dataset.pid, tpgid=+t.dataset.pgid;
-      if(tid!==drag.pid){
-        const g=groups.find(x=>x.id===drag.gid);
-        const fromPage=g.pages.find(p=>p.id===drag.pgid);
-        const toPage=g.pages.find(p=>p.id===tpgid);
-        if(fromPage && toPage){
-          const from=fromPage.photos.findIndex(p=>p.id===drag.pid);
-          const moved=fromPage.photos.splice(from,1)[0];
-          const to=toPage.photos.findIndex(p=>p.id===tid);
-          toPage.photos.splice(to,0,moved);
-          if(!fromPage.photos.length && g.pages.length>1) g.pages=g.pages.filter(p=>p.photos.length>0);
-        }
-      }
-    } else if(drop && +drop.dataset.gid===drag.gid && +drop.dataset.pgid!==drag.pgid){
-      const g=groups.find(x=>x.id===drag.gid);
+    const g=groups.find(x=>x.id===drag.gid);
+    if(g){
       const fromPage=g.pages.find(p=>p.id===drag.pgid);
-      const toPage=g.pages.find(p=>p.id===drop.dataset.pgid);
-      if(fromPage && toPage){
+      if(fromPage){
         const from=fromPage.photos.findIndex(p=>p.id===drag.pid);
-        const moved=fromPage.photos.splice(from,1)[0];
-        toPage.photos.push(moved);
-        if(!fromPage.photos.length && g.pages.length>1) g.pages=g.pages.filter(p=>p.photos.length>0);
+        if(from>=0){
+          if(addPage && groupEl && +groupEl.dataset.gid===drag.gid){
+            const moved=fromPage.photos.splice(from,1)[0];
+            const np=newEmptyPage();
+            g.pages.push(np);
+            np.photos.push(moved);
+            cleanupEmptyPages(g);
+          } else if(t && +t.dataset.gid===drag.gid){
+            const tid=+t.dataset.pid, tpgid=+t.dataset.pgid;
+            if(tid!==drag.pid){
+              let toPage=g.pages.find(p=>p.id===tpgid);
+              const moved=fromPage.photos.splice(from,1)[0];
+              if(fromPage.id!==toPage.id && toPage.photos.length>=S.perPage){
+                toPage=pageForPhotoDrop(g, null);
+                toPage.photos.push(moved);
+              } else {
+                const to=toPage.photos.findIndex(p=>p.id===tid);
+                toPage.photos.splice(to,0,moved);
+              }
+              cleanupEmptyPages(g);
+            }
+          } else if(drop && +drop.dataset.gid===drag.gid && +drop.dataset.pgid!==drag.pgid){
+            let toPage=g.pages.find(p=>p.id===+drop.dataset.pgid);
+            const moved=fromPage.photos.splice(from,1)[0];
+            if(toPage.photos.length>=S.perPage) toPage=pageForPhotoDrop(g, null);
+            toPage.photos.push(moved);
+            cleanupEmptyPages(g);
+          }
+        }
       }
     }
     ghost.style.display='none'; document.body.style.userSelect=''; render();
