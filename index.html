@@ -63,18 +63,19 @@
   .gdel{background:transparent;border:1px solid #cfc7b8;color:#8a8172;width:32px;padding:0;justify-content:center}
   .gdel:hover{background:#eee6da;color:#b5453a}
 
-  .gpages{zoom:var(--zoom);display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:26px 20px;width:min(94vw,calc(1640px + 20px));align-items:start}
-  .gdrop{width:100%;grid-column:1/-1;border:2px dashed #c3bcae;border-radius:12px;background:#efece5;color:#7a7263;text-align:center;padding:34px 20px;transition:border-color .15s,background .15s}
+  .gpages{zoom:var(--zoom);display:flex;flex-direction:column;align-items:center;gap:26px;width:min(94vw,calc(1640px + 20px))}
+  .grow{display:flex;flex-direction:row;align-items:flex-start;justify-content:center;gap:20px;flex-wrap:nowrap;width:100%}
+  .gdrop{width:100%;border:2px dashed #c3bcae;border-radius:12px;background:#efece5;color:#7a7263;text-align:center;padding:34px 20px;transition:border-color .15s,background .15s}
   .gdrop.hot{border-color:var(--gcolor);background:#f4ede0}
   .gdrop p{margin:0 0 14px;font-size:13px}
-  .add-card{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;width:100%;aspect-ratio:210/297;max-height:min(70vh,900px);border:2px dashed #c3bcae;border-radius:12px;background:#efece5;color:#7a7263;cursor:pointer;transition:border-color .15s,background .15s,color .15s;font-family:inherit;font-size:14px;padding:20px}
+  .add-card{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;flex:0 0 auto;width:210mm;height:297mm;border:2px dashed #c3bcae;border-radius:12px;background:#efece5;color:#7a7263;cursor:pointer;transition:border-color .15s,background .15s,color .15s;font-family:inherit;font-size:14px;padding:20px}
   .add-card:hover{border-color:var(--gcolor,#d98a2b);background:#f4ede0;color:var(--gcolor,#d98a2b)}
   .add-card .add-icon{font-size:32px;line-height:1;font-weight:300}
   .add-card .add-label{font-size:13px;font-weight:600;letter-spacing:.02em}
 
   .page{background:var(--paper);box-shadow:0 6px 30px rgba(0,0,0,.22);position:relative;overflow:hidden;display:flex;flex-direction:column;align-self:center}
   .page-inner{display:flex;flex-direction:column;margin:auto;flex-shrink:0}
-  .page-wrap{display:flex;flex-direction:column;align-items:stretch;gap:8px;width:100%}
+  .page-wrap{display:flex;flex-direction:column;align-items:stretch;gap:8px;flex:0 0 auto;width:auto}
   .page-tag{font-size:12px;color:#8a8172;letter-spacing:.04em;padding-left:2px}
   .page-settings{display:flex;flex-direction:column;gap:0;background:#f3efe8;border:1px solid #d8d1c4;border-radius:10px;padding:8px 12px;width:100%}
   .page-settings .settings-head{display:flex;align-items:center;justify-content:space-between;gap:8px;cursor:pointer;user-select:none;font-size:12px;color:#8a8172;padding:2px 0}
@@ -111,9 +112,9 @@
     .settings{flex-direction:column;align-items:stretch;gap:16px;margin-top:14px;padding-top:12px;border-top:1px solid var(--line)}
     .settings .sep{display:none}
     .ghead,.gpages{width:min(94vw,820px)}
-    .gpages{display:flex;flex-direction:column;align-items:center;gap:26px}
+    .grow{flex-direction:column;align-items:center}
     .page-wrap,.add-card{width:100%;max-width:820px}
-    .add-card{max-height:none}
+    .add-card{width:100%;height:auto;aspect-ratio:210/297}
     .ctrl{width:100%}
     input[type=range],select{width:100%}
     .btn{padding:12px 15px;font-size:15px}
@@ -135,7 +136,7 @@
     body{background:#fff;height:auto!important;min-height:0!important;overflow:visible!important;display:block!important;-webkit-text-size-adjust:100%}
     .toolbar,#ghost{display:none!important}
     .workspace{overflow:visible!important;padding:0!important;margin:0!important;display:block!important;width:auto!important;max-width:none!important}
-    .stack,.group,.gpages,.page-wrap{display:block!important;overflow:visible!important;padding:0!important;margin:0!important;gap:0!important;width:auto!important;max-width:none!important;zoom:1!important;transform:none!important}
+    .stack,.group,.gpages,.grow,.page-wrap{display:block!important;overflow:visible!important;padding:0!important;margin:0!important;gap:0!important;width:auto!important;max-width:none!important;zoom:1!important;transform:none!important}
     .ghead,.gdrop,.add-card{display:none!important}
     .page{
       box-shadow:none!important;margin:0!important;position:relative!important;
@@ -212,6 +213,7 @@ const PORTRAIT = {w:210,h:297};
 const LANDSCAPE = {w:297,h:210};
 const MAXRATIO = 2;   // žádná fotka nesmí být (plochou) víc než 2× menší než jiná na stránce
 const AUTO_MARGIN_MAX = 2;  // automatický okraj: zkouší 0–2 mm a vybere největší využití stránky
+const GPAGE_COL_GAP = 20;
 
 const GCOLORS = ['#d98a2b','#3f9a8f','#8a5a83','#6f8f4e','#b5673f','#4a6fa5'];
 let groups = [];
@@ -341,7 +343,7 @@ $('#clearBtn').addEventListener('click', ()=>{
 });
 $('#settingsToggle').addEventListener('click', ()=> $('#toolbar').classList.toggle('open'));
 $('#perPage').addEventListener('change', e=>{ S.perPage=+e.target.value; });
-$('#orient').addEventListener('change', e=>{ S.orient=e.target.value; fitZoom(); });
+$('#orient').addEventListener('change', e=>{ S.orient=e.target.value; render(); });
 
 function bindRange(id,key,unit){
   const el=$('#'+id), lab=$('#'+id+'Val');
@@ -376,9 +378,9 @@ function addFiles(id, list, pageId){
     const url=URL.createObjectURL(f); const img=new Image();
     img.onload=()=>{
       targetPage(g, pageId).photos.push({id:++pid,url,w:img.naturalWidth,h:img.naturalHeight});
-      if(--pending===0){fitZoom();render();}
+      if(--pending===0) render();
     };
-    img.onerror=()=>{ if(--pending===0){fitZoom();render();} };
+    img.onerror=()=>{ if(--pending===0) render(); };
     img.src=url;
   });
 }
@@ -505,6 +507,7 @@ function mkAddCard(label, title, onClick){
   card.className='add-card';
   card.type='button';
   card.title=title;
+  card.dataset.orient='portrait';
   const icon=document.createElement('span'); icon.className='add-icon'; icon.textContent='＋';
   const lbl=document.createElement('span'); lbl.className='add-label'; lbl.textContent=label;
   card.append(icon,lbl);
@@ -513,6 +516,44 @@ function mkAddCard(label, title, onClick){
 }
 function rowWidth(cells, gap){
   return cells.reduce((s,c)=>s+c.w,0) + gap * Math.max(0, cells.length - 1);
+}
+function pageCols(){
+  return parseInt(getComputedStyle(document.documentElement).getPropertyValue('--page-cols')) || 1;
+}
+function pairIntoRows(items, cols){
+  if(cols <= 1) return items.map(el => [el]);
+  const remaining = items.map(el => ({ el, orient: el.dataset.orient || 'portrait' }));
+  const rows = [];
+  while(remaining.length){
+    const first = remaining.shift();
+    const matchIdx = remaining.findIndex(x => x.orient === first.orient);
+    if(matchIdx >= 0){
+      rows.push([first.el, remaining.splice(matchIdx, 1)[0].el]);
+    } else if(remaining.length){
+      rows.push([first.el, remaining.shift().el]);
+    } else {
+      rows.push([first.el]);
+    }
+  }
+  return rows;
+}
+function appendGpageRows(gp, items){
+  const cols = pageCols();
+  pairIntoRows(items, cols).forEach(row => {
+    const rowEl = document.createElement('div');
+    rowEl.className = 'grow';
+    row.forEach(el => rowEl.appendChild(el));
+    gp.appendChild(rowEl);
+  });
+}
+function maxRowWidthMm(widths, cols){
+  if(!widths.length) return PORTRAIT.w;
+  let maxW = 0;
+  for(let i = 0; i < widths.length; i += cols){
+    const row = widths.slice(i, i + cols);
+    maxW = Math.max(maxW, row.reduce((s, w) => s + w, 0));
+  }
+  return maxW;
 }
 function render(){
   const total=groups.reduce((s,g)=>s+photoCount(g),0);
@@ -542,10 +583,12 @@ function render(){
 
     const gp=document.createElement('div'); gp.className='gpages'; wireDrop(gp,g.id);
     const pageTotal=g.pages.length;
+    const pageItems=[];
     g.pages.forEach((page,ci)=>{
         const settings=pageSettings(page.settings);
         const {rows,margin,orient,dims}=layoutPage(page.photos,settings);
         const wrap=document.createElement('div'); wrap.className='page-wrap';
+        wrap.dataset.orient=orient;
         const tag=document.createElement('div'); tag.className='page-tag';
         tag.textContent=(g.name||'Událost')+' — strana '+(ci+1)+'/'+pageTotal+' · '+page.photos.length+' '+plural(page.photos.length);
         if(page.photos.length) tag.textContent+=(orient==='landscape'?' · na šířku':' · na výšku');
@@ -594,10 +637,13 @@ function render(){
         });
         pg.appendChild(inner);
         wrap.appendChild(pg);
-        gp.appendChild(wrap);
+        pageItems.push(wrap);
       });
-    gp.appendChild(mkAddCard('Stránka', 'Přidat prázdnou stránku', ()=>{ g.pages.push({id:++pgid,photos:[],settings:newPageSettings()}); render(); }));
-    gp.appendChild(mkAddCard('Skupina', 'Přidat další událost', ()=>addGroupAfter(g.id)));
+    pageItems.push(
+      mkAddCard('Stránka', 'Přidat prázdnou stránku', ()=>{ g.pages.push({id:++pgid,photos:[],settings:newPageSettings()}); render(); }),
+      mkAddCard('Skupina', 'Přidat další událost', ()=>addGroupAfter(g.id))
+    );
+    appendGpageRows(gp, pageItems);
     sec.appendChild(gp);
     stack.appendChild(sec);
   });
@@ -605,6 +651,7 @@ function render(){
   const pages=stack.querySelectorAll('.page');
   if(pages.length) pages[pages.length-1].classList.add('is-last');
   enableDrag();
+  fitZoom();
 }
 function mkBtn(t,title,fn){ const b=document.createElement('button'); b.className='tbtn'; b.textContent=t; b.title=title; b.onclick=e=>{e.stopPropagation();fn();}; return b; }
 function movePhoto(groupId, pageId, photoId, dir){
@@ -709,26 +756,28 @@ function onUp(e){
 
 /* ---------- fit to width ---------- */
 function fitZoom(){
-  let wMax=PORTRAIT.w;
-  groups.forEach(g=>g.pages.forEach(page=>{
-    const s=pageSettings(page.settings);
-    if(s.orient==='landscape') wMax=Math.max(wMax,LANDSCAPE.w);
-    else if(s.orient==='auto') wMax=Math.max(wMax,PORTRAIT.w,LANDSCAPE.w);
-  }));
-  if(S.orient==='landscape') wMax=Math.max(wMax,LANDSCAPE.w);
-  const pagePx=wMax*MM;
-  const pad=parseFloat(getComputedStyle(workspace).paddingLeft)||0;
-  const avail=workspace.clientWidth-2*pad;
-  const cols=parseInt(getComputedStyle(document.documentElement).getPropertyValue('--page-cols'))||1;
-  const gap=cols===2?20:0;
-  let z=(avail-gap)/(cols*pagePx); z=Math.max(0.2,Math.min(1,z));
-  setZoom(z*100);
+  const cols = pageCols();
+  let maxRowPx = PORTRAIT.w * MM;
+
+  groups.forEach(g => {
+    const widths = g.pages.map(page => layoutPage(page.photos, pageSettings(page.settings)).dims.w);
+    widths.push(PORTRAIT.w, PORTRAIT.w);
+    const rowWmm = maxRowWidthMm(widths, cols);
+    let rowPx = rowWmm * MM;
+    if(cols > 1) rowPx += GPAGE_COL_GAP * (cols - 1);
+    maxRowPx = Math.max(maxRowPx, rowPx);
+  });
+
+  const pad = parseFloat(getComputedStyle(workspace).paddingLeft) || 0;
+  const avail = workspace.clientWidth - 2 * pad;
+  let z = avail / maxRowPx;
+  z = Math.max(0.2, Math.min(1, z));
+  setZoom(z * 100);
 }
 let rt; window.addEventListener('resize',()=>{ clearTimeout(rt); rt=setTimeout(fitZoom,150); });
 
 /* ---------- init ---------- */
 groups=[newGroup('Událost 1')];
-fitZoom();
 render();
 </script>
 </body>
