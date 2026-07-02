@@ -64,7 +64,7 @@
 
   .gpages{zoom:var(--zoom);display:flex;flex-direction:column;align-items:center;gap:26px}
   .gdrop{width:min(94vw,820px);border:2px dashed #c3bcae;border-radius:12px;background:#efece5;color:#7a7263;text-align:center;padding:34px 20px;transition:border-color .15s,background .15s}
-  .gdrop.hot{border-color:var(--gcolor);background:#f4ede0}
+  .gdrop.hot,.gdrop.grip-target{border-color:var(--gcolor);background:#f4ede0}
   .gdrop p{margin:0 0 14px;font-size:13px}
 
   .page{background:var(--paper);box-shadow:0 6px 30px rgba(0,0,0,.22);position:relative;overflow:hidden;display:flex;flex-direction:column}
@@ -160,7 +160,7 @@
     <div class="ctrl"><label>Výchozí fotek na stránku</label>
       <select id="perPage"><option>1</option><option>2</option><option>3</option><option selected>4</option><option>6</option></select></div>
     <div class="ctrl"><label>Výchozí mezera <span class="val" id="gapVal"></span></label>
-      <input type="range" id="gap" min="0" max="16" value="4"></div>
+      <input type="range" id="gap" min="0" max="16" value="2"></div>
     <div class="sep"></div>
     <div class="ctrl"><label>Výchozí okraj <span class="val" id="marginVal"></span></label>
       <input type="range" id="margin" min="0" max="28" value="12" disabled></div>
@@ -199,9 +199,9 @@ const AUTO_MARGIN_MAX = 2;  // automatický okraj: zkouší 0–2 mm a vybere ne
 
 const GCOLORS = ['#d98a2b','#3f9a8f','#8a5a83','#6f8f4e','#b5673f','#4a6fa5'];
 let groups = [];
-let gid = 0, pid = 0, pgid = 0, targetGid = null;
+let gid = 0, pid = 0, pgid = 0, targetGid = null, targetPageId = null;
 
-const S = { perPage:4, gap:4, margin:12, autoMargin:true, orient:'auto' };
+const S = { perPage:4, gap:2, margin:12, autoMargin:true, orient:'auto' };
 
 function newPageSettings(){
   return { gap:S.gap, margin:S.margin, autoMargin:S.autoMargin, orient:S.orient };
@@ -360,17 +360,24 @@ zoomEl.addEventListener('input', ()=>setZoom(+zoomEl.value));
 setZoom(60);
 
 /* ---------- files ---------- */
-function pickInto(id){ targetGid=id; fileInput.click(); }
-fileInput.addEventListener('change', e=>{ addFiles(targetGid, e.target.files); fileInput.value=''; });
-function addFiles(id, list){
+function pickInto(id, pageId){ targetGid=id; targetPageId=pageId??null; fileInput.click(); }
+fileInput.addEventListener('change', e=>{ addFiles(targetGid, e.target.files, targetPageId); fileInput.value=''; targetPageId=null; });
+function targetPage(g, pageId){
+  if(pageId!=null){
+    const page=g.pages.find(p=>p.id===pageId);
+    if(page) return page;
+  }
+  ensurePageCapacity(g);
+  return ensurePage(g);
+}
+function addFiles(id, list, pageId){
   const g=groups.find(x=>x.id===id); if(!g) return;
   const files=[...list].filter(f=>f.type.startsWith('image/'));
   let pending=files.length; if(!pending) return;
   files.forEach(f=>{
     const url=URL.createObjectURL(f); const img=new Image();
     img.onload=()=>{
-      ensurePageCapacity(g);
-      ensurePage(g).photos.push({id:++pid,url,w:img.naturalWidth,h:img.naturalHeight});
+      targetPage(g, pageId).photos.push({id:++pid,url,w:img.naturalWidth,h:img.naturalHeight});
       if(--pending===0){fitZoom();render();}
     };
     img.onerror=()=>{ if(--pending===0){fitZoom();render();} };
@@ -530,11 +537,24 @@ function render(){
       const pageTotal=g.pages.length;
       g.pages.forEach((page,ci)=>{
         const settings=pageSettings(page.settings);
-        const {rows,margin,orient,dims}=layoutPage(page.photos,settings);
         const wrap=document.createElement('div'); wrap.className='page-wrap';
         const tag=document.createElement('div'); tag.className='page-tag';
-        tag.textContent=(g.name||'Událost')+' — strana '+(ci+1)+'/'+pageTotal+' · '+page.photos.length+' '+plural(page.photos.length)+(orient==='landscape'?' · na šířku':' · na výšku');
+        tag.textContent=(g.name||'Událost')+' — strana '+(ci+1)+'/'+pageTotal+' · '+page.photos.length+' '+plural(page.photos.length);
         wrap.appendChild(tag);
+
+        if(!page.photos.length){
+          wrap.appendChild(mkPageSettingsBar(page, ()=>render(), 0));
+          const dz=document.createElement('div'); dz.className='gdrop';
+          dz.dataset.gid=g.id; dz.dataset.pgid=page.id;
+          dz.innerHTML='<p>Prázdná stránka.<br>Přetáhni sem fotky nebo klikni níže.</p>';
+          const b=document.createElement('button'); b.className='btn badd'; b.textContent='Vybrat fotky'; b.onclick=()=>pickInto(g.id, page.id);
+          dz.appendChild(b); wireDrop(dz,g.id,page.id); wrap.appendChild(dz);
+          gp.appendChild(wrap);
+          return;
+        }
+
+        const {rows,margin,orient,dims}=layoutPage(page.photos,settings);
+        tag.textContent+=(orient==='landscape'?' · na šířku':' · na výšku');
         wrap.appendChild(mkPageSettingsBar(page, ()=>render(), margin));
         const pg=document.createElement('div'); pg.className='page '+orient;
         pg.style.width=dims.w+'mm'; pg.style.height=dims.h+'mm'; pg.style.padding=margin+'mm';
@@ -605,13 +625,13 @@ function movePhoto(groupId, pageId, photoId, dir){
   render();
 }
 
-/* ---------- drop files onto a group ---------- */
-function wireDrop(el,groupId){
+/* ---------- drop files onto a group or page ---------- */
+function wireDrop(el,groupId,pageId){
   ['dragenter','dragover'].forEach(ev=>el.addEventListener(ev,e=>{
     if(e.dataTransfer && [...e.dataTransfer.items].some(i=>i.kind==='file')){ e.preventDefault(); el.classList.add('hot'); }
   }));
   ['dragleave','drop'].forEach(ev=>el.addEventListener(ev,e=>{
-    if(ev==='drop'){ e.preventDefault(); if(e.dataTransfer.files.length) addFiles(groupId,e.dataTransfer.files); }
+    if(ev==='drop'){ e.preventDefault(); if(e.dataTransfer.files.length) addFiles(groupId,e.dataTransfer.files,pageId); }
     el.classList.remove('hot');
   }));
 }
@@ -641,15 +661,20 @@ function onMove(e){
   e.preventDefault();
   ghost.style.left=e.clientX+'px'; ghost.style.top=e.clientY+'px';
   const el=document.elementFromPoint(e.clientX,e.clientY);
-  const t=el&&el.closest?el.closest('.cell'):null;
+  const t=el?.closest?.('.cell') || el?.closest?.('.gdrop[data-pgid]');
   stack.querySelectorAll('.cell.dropzone').forEach(c=>c.classList.remove('dropzone'));
-  if(t && +t.dataset.gid===drag.gid && +t.dataset.pid!==drag.pid) t.classList.add('dropzone');
+  stack.querySelectorAll('.gdrop.grip-target').forEach(c=>c.classList.remove('grip-target'));
+  if(t){
+    if(t.classList.contains('cell') && +t.dataset.gid===drag.gid && +t.dataset.pid!==drag.pid) t.classList.add('dropzone');
+    else if(t.classList.contains('gdrop') && +t.dataset.gid===drag.gid && +t.dataset.pgid!==drag.pgid) t.classList.add('grip-target');
+  }
 }
 function onUp(e){
   document.removeEventListener('pointermove',onMove); document.removeEventListener('pointerup',onUp);
   if(drag && drag.active){
     const el=document.elementFromPoint(e.clientX,e.clientY);
-    const t=el&&el.closest?el.closest('.cell'):null;
+    const t=el?.closest?.('.cell');
+    const drop=el?.closest?.('.gdrop[data-pgid]');
     if(t && +t.dataset.gid===drag.gid){
       const tid=+t.dataset.pid, tpgid=+t.dataset.pgid;
       if(tid!==drag.pid){
@@ -663,6 +688,16 @@ function onUp(e){
           toPage.photos.splice(to,0,moved);
           if(!fromPage.photos.length && g.pages.length>1) g.pages=g.pages.filter(p=>p.photos.length>0);
         }
+      }
+    } else if(drop && +drop.dataset.gid===drag.gid && +drop.dataset.pgid!==drag.pgid){
+      const g=groups.find(x=>x.id===drag.gid);
+      const fromPage=g.pages.find(p=>p.id===drag.pgid);
+      const toPage=g.pages.find(p=>p.id===drop.dataset.pgid);
+      if(fromPage && toPage){
+        const from=fromPage.photos.findIndex(p=>p.id===drag.pid);
+        const moved=fromPage.photos.splice(from,1)[0];
+        toPage.photos.push(moved);
+        if(!fromPage.photos.length && g.pages.length>1) g.pages=g.pages.filter(p=>p.photos.length>0);
       }
     }
     ghost.style.display='none'; document.body.style.userSelect=''; render();
