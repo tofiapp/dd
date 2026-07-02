@@ -165,7 +165,7 @@
     <div class="ctrl"><label>Výchozí okraj <span class="val" id="marginVal"></span></label>
       <input type="range" id="margin" min="0" max="28" value="12" disabled></div>
     <div class="ctrl"><label>&nbsp;</label>
-      <label class="chk"><input type="checkbox" id="autoMargin" checked> Automatický okraj</label></div>
+      <label class="chk"><input type="checkbox" id="autoMargin" checked> Automatický okraj (max 2 mm)</label></div>
     <div class="sep"></div>
     <div class="ctrl"><label>Výchozí orientace</label>
       <select id="orient">
@@ -195,6 +195,7 @@ const MM = 3.779528;
 const PORTRAIT = {w:210,h:297};
 const LANDSCAPE = {w:297,h:210};
 const MAXRATIO = 2;   // žádná fotka nesmí být (plochou) víc než 2× menší než jiná na stránce
+const AUTO_MARGIN_MAX = 2;  // automatický okraj: zkouší 0–2 mm a vybere největší využití stránky
 
 const GCOLORS = ['#d98a2b','#3f9a8f','#8a5a83','#6f8f4e','#b5673f','#4a6fa5'];
 let groups = [];
@@ -378,10 +379,6 @@ function addFiles(id, list){
 }
 
 /* ---------- layout ---------- */
-function marginFor(count, settings){
-  if(!settings.autoMargin) return settings.margin;
-  if(count<=1) return 10; if(count===2) return 8; if(count===3) return 7; if(count===4) return 6; return 5;
-}
 function compositions(n){
   const out=[]; (function rec(rem,cur){ if(rem===0){out.push(cur.slice());return;} for(let k=1;k<=rem;k++){cur.push(k);rec(rem-k,cur);cur.pop();} })(n,[]); return out;
 }
@@ -393,22 +390,26 @@ function evalArrangement(rp, cW, cH, gap){
   const scale=Math.min(1, availH/sumH);
   let area=0;
   const rows=info.map(r=>{ const h=r.hmax*scale; const cells=r.ph.map(p=>{const w=h*(p.w/p.h);area+=w*h;return {p,w,h};}); return {h,cells}; });
-  return {rows, score:area/(cW*cH)};
+  return {rows, score:area/(cW*cH), area};
 }
 function areaRatio(rows){
   let mn=Infinity, mx=0;
   rows.forEach(r=>r.cells.forEach(c=>{ const a=c.w*c.h; if(a<mn)mn=a; if(a>mx)mx=a; }));
   return mn>0 ? mx/mn : 1;
 }
-function betterArr(a,b){          // prefer size-balanced first, then bigger fill
+function betterArr(a,b){          // prefer balanced sizes, then max photo area on page
   if(!a) return b; if(!b) return a;
-  if(a.valid!==b.valid) return a.valid ? a : b;   // balanced (ratio<=2) wins
-  if(a.valid) return b.score>a.score ? b : a;      // both balanced -> better coverage
-  return b.ratio<a.ratio ? b : a;                  // neither balanced -> least disparity
+  if(a.valid!==b.valid) return a.valid ? a : b;
+  if(a.valid){
+    if(b.area>a.area+0.01) return b;
+    if(a.area>b.area+0.01) return a;
+    return (b.margin??0)<(a.margin??0) ? b : a;  // při shodě menší okraj
+  }
+  return b.ratio<a.ratio ? b : a;
 }
-function bestArrangement(items, pageDims, settings){
-  const margin=marginFor(items.length, settings);
+function bestArrangementAtMargin(items, pageDims, settings, margin){
   const cW=pageDims.w-2*margin, cH=pageDims.h-2*margin, gap=settings.gap;
+  if(cW<=0 || cH<=0) return null;
   let best=null;
   for(const comp of compositions(items.length)){
     let i=0; const rp=[]; for(const c of comp){ rp.push(items.slice(i,i+c)); i+=c; }
@@ -416,10 +417,23 @@ function bestArrangement(items, pageDims, settings){
     if(!res) continue;
     res.ratio=areaRatio(res.rows);
     res.valid=res.ratio<=MAXRATIO;
+    res.margin=margin;
     best=betterArr(best,res);
   }
-  return best ? {rows:best.rows, score:best.score, ratio:best.ratio, valid:best.valid, margin}
-              : {rows:[], score:0, ratio:1, valid:true, margin};
+  return best;
+}
+function bestArrangement(items, pageDims, settings){
+  const margins = settings.autoMargin
+    ? Array.from({length:AUTO_MARGIN_MAX+1}, (_,i)=>i)
+    : [settings.margin];
+  let best=null;
+  for(const margin of margins){
+    const res=bestArrangementAtMargin(items, pageDims, settings, margin);
+    if(res) best=betterArr(best,res);
+  }
+  const fallbackMargin = settings.autoMargin ? AUTO_MARGIN_MAX : settings.margin;
+  return best ? {rows:best.rows, score:best.score, area:best.area, ratio:best.ratio, valid:best.valid, margin:best.margin}
+              : {rows:[], score:0, area:0, ratio:1, valid:true, margin:fallbackMargin};
 }
 function layoutPage(items, settings){
   if(settings.orient==='auto'){
@@ -427,7 +441,7 @@ function layoutPage(items, settings){
     const l=bestArrangement(items,LANDSCAPE,settings);
     const P={...p,orient:'portrait',dims:PORTRAIT}, L={...l,orient:'landscape',dims:LANDSCAPE};
     if(p.valid!==l.valid) return p.valid ? P : L;
-    if(p.valid) return (l.score > p.score*1.06) ? L : P;
+    if(p.valid) return (l.area > p.area) ? L : P;
     return (l.ratio < p.ratio) ? L : P;
   }
   const dims = settings.orient==='landscape'?LANDSCAPE:PORTRAIT;
@@ -443,7 +457,7 @@ function addGroupAfter(id){
   const el=stack.querySelector('[data-gid="'+ng.id+'"]');
   if(el && el.scrollIntoView) el.scrollIntoView({behavior:'smooth',block:'center'});
 }
-function mkPageSettingsBar(page, onChange){
+function mkPageSettingsBar(page, onChange, computedMargin){
   const ps=pageSettings(page.settings);
   const bar=document.createElement('div'); bar.className='page-settings';
   const gapCtrl=document.createElement('div'); gapCtrl.className='ctrl';
@@ -452,7 +466,8 @@ function mkPageSettingsBar(page, onChange){
   gapR.addEventListener('input', ()=>{ page.settings.gap=+gapR.value; gapLab.querySelector('.val').textContent=gapR.value+' mm'; onChange(); });
   gapCtrl.append(gapLab,gapR);
   const marginCtrl=document.createElement('div'); marginCtrl.className='ctrl';
-  const marginLab=document.createElement('label'); marginLab.innerHTML='Okraj <span class="val">'+ps.margin+' mm</span>';
+  const showMargin = ps.autoMargin ? computedMargin : ps.margin;
+  const marginLab=document.createElement('label'); marginLab.innerHTML='Okraj <span class="val">'+showMargin+' mm</span>';
   const marginR=document.createElement('input'); marginR.type='range'; marginR.min=0; marginR.max=28; marginR.value=ps.margin; marginR.disabled=ps.autoMargin;
   marginR.addEventListener('input', ()=>{ page.settings.margin=+marginR.value; marginLab.querySelector('.val').textContent=marginR.value+' mm'; onChange(); });
   marginCtrl.append(marginLab,marginR);
@@ -461,7 +476,7 @@ function mkPageSettingsBar(page, onChange){
   const autoChk=document.createElement('label'); autoChk.className='chk';
   const autoIn=document.createElement('input'); autoIn.type='checkbox'; autoIn.checked=ps.autoMargin;
   autoIn.addEventListener('change', ()=>{ page.settings.autoMargin=autoIn.checked; marginR.disabled=autoIn.checked; onChange(); });
-  autoChk.append(autoIn, document.createTextNode(' Auto okraj'));
+  autoChk.append(autoIn, document.createTextNode(' Auto okraj (max 2 mm)'));
   autoCtrl.append(autoLab,autoChk);
   const orientCtrl=document.createElement('div'); orientCtrl.className='ctrl';
   const orientLab=document.createElement('label'); orientLab.textContent='Orientace';
@@ -520,7 +535,7 @@ function render(){
         const tag=document.createElement('div'); tag.className='page-tag';
         tag.textContent=(g.name||'Událost')+' — strana '+(ci+1)+'/'+pageTotal+' · '+page.photos.length+' '+plural(page.photos.length)+(orient==='landscape'?' · na šířku':' · na výšku');
         wrap.appendChild(tag);
-        wrap.appendChild(mkPageSettingsBar(page, ()=>render()));
+        wrap.appendChild(mkPageSettingsBar(page, ()=>render(), margin));
         const pg=document.createElement('div'); pg.className='page '+orient;
         pg.style.width=dims.w+'mm'; pg.style.height=dims.h+'mm'; pg.style.padding=margin+'mm';
         const inner=document.createElement('div'); inner.className='page-inner';
