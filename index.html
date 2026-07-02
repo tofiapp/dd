@@ -64,7 +64,7 @@
 
   .gpages{zoom:var(--zoom);display:flex;flex-direction:column;align-items:center;gap:26px}
   .gdrop{width:min(94vw,820px);border:2px dashed #c3bcae;border-radius:12px;background:#efece5;color:#7a7263;text-align:center;padding:34px 20px;transition:border-color .15s,background .15s}
-  .gdrop.hot,.gdrop.grip-target{border-color:var(--gcolor);background:#f4ede0}
+  .gdrop.hot{border-color:var(--gcolor);background:#f4ede0}
   .gdrop p{margin:0 0 14px;font-size:13px}
 
   .page{background:var(--paper);box-shadow:0 6px 30px rgba(0,0,0,.22);position:relative;overflow:hidden;display:flex;flex-direction:column}
@@ -78,6 +78,8 @@
   .page-settings select{background:#fff;color:#2c2822;border:1px solid #cfc7b8;border-radius:6px;padding:5px 7px;font-size:12px}
   .page-settings .chk{color:#5f574a;font-size:11px}
   .page-settings .chk input{width:14px;height:14px}
+  .page.is-empty.drop-target{outline:3px solid var(--amber);outline-offset:-3px}
+  .page.is-empty.hot{box-shadow:0 0 0 3px var(--gcolor)}
   .row{display:flex}
   .cell{position:relative;overflow:hidden;background:#f0ece4}
   .cell img{width:100%;height:100%;object-fit:cover;display:block;pointer-events:none}
@@ -537,27 +539,21 @@ function render(){
       const pageTotal=g.pages.length;
       g.pages.forEach((page,ci)=>{
         const settings=pageSettings(page.settings);
+        const {rows,margin,orient,dims}=layoutPage(page.photos,settings);
         const wrap=document.createElement('div'); wrap.className='page-wrap';
         const tag=document.createElement('div'); tag.className='page-tag';
         tag.textContent=(g.name||'Událost')+' — strana '+(ci+1)+'/'+pageTotal+' · '+page.photos.length+' '+plural(page.photos.length);
+        if(page.photos.length) tag.textContent+=(orient==='landscape'?' · na šířku':' · na výšku');
         wrap.appendChild(tag);
-
-        if(!page.photos.length){
-          wrap.appendChild(mkPageSettingsBar(page, ()=>render(), 0));
-          const dz=document.createElement('div'); dz.className='gdrop';
-          dz.dataset.gid=g.id; dz.dataset.pgid=page.id;
-          dz.innerHTML='<p>Prázdná stránka.<br>Přetáhni sem fotky nebo klikni níže.</p>';
-          const b=document.createElement('button'); b.className='btn badd'; b.textContent='Vybrat fotky'; b.onclick=()=>pickInto(g.id, page.id);
-          dz.appendChild(b); wireDrop(dz,g.id,page.id); wrap.appendChild(dz);
-          gp.appendChild(wrap);
-          return;
-        }
-
-        const {rows,margin,orient,dims}=layoutPage(page.photos,settings);
-        tag.textContent+=(orient==='landscape'?' · na šířku':' · na výšku');
         wrap.appendChild(mkPageSettingsBar(page, ()=>render(), margin));
-        const pg=document.createElement('div'); pg.className='page '+orient;
+        const pg=document.createElement('div'); pg.className='page '+orient+(page.photos.length?'':' is-empty');
+        pg.dataset.gid=g.id; pg.dataset.pgid=page.id;
         pg.style.width=dims.w+'mm'; pg.style.height=dims.h+'mm'; pg.style.padding=margin+'mm';
+        if(!page.photos.length){
+          inner.style.width='100%';
+          inner.style.height='100%';
+          wireDrop(pg,g.id,page.id);
+        }
         const inner=document.createElement('div'); inner.className='page-inner';
         inner.style.gap=settings.gap+'mm';
         let innerW=0, innerH=0;
@@ -661,12 +657,12 @@ function onMove(e){
   e.preventDefault();
   ghost.style.left=e.clientX+'px'; ghost.style.top=e.clientY+'px';
   const el=document.elementFromPoint(e.clientX,e.clientY);
-  const t=el?.closest?.('.cell') || el?.closest?.('.gdrop[data-pgid]');
+  const t=el?.closest?.('.cell') || el?.closest?.('.page.is-empty[data-pgid]');
   stack.querySelectorAll('.cell.dropzone').forEach(c=>c.classList.remove('dropzone'));
-  stack.querySelectorAll('.gdrop.grip-target').forEach(c=>c.classList.remove('grip-target'));
+  stack.querySelectorAll('.page.is-empty.drop-target').forEach(c=>c.classList.remove('drop-target'));
   if(t){
     if(t.classList.contains('cell') && +t.dataset.gid===drag.gid && +t.dataset.pid!==drag.pid) t.classList.add('dropzone');
-    else if(t.classList.contains('gdrop') && +t.dataset.gid===drag.gid && +t.dataset.pgid!==drag.pgid) t.classList.add('grip-target');
+    else if(t.classList.contains('page') && +t.dataset.gid===drag.gid && +t.dataset.pgid!==drag.pgid) t.classList.add('drop-target');
   }
 }
 function onUp(e){
@@ -674,7 +670,7 @@ function onUp(e){
   if(drag && drag.active){
     const el=document.elementFromPoint(e.clientX,e.clientY);
     const t=el?.closest?.('.cell');
-    const drop=el?.closest?.('.gdrop[data-pgid]');
+    const drop=el?.closest?.('.page.is-empty[data-pgid]');
     if(t && +t.dataset.gid===drag.gid){
       const tid=+t.dataset.pid, tpgid=+t.dataset.pgid;
       if(tid!==drag.pid){
